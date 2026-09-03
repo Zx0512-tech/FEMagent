@@ -9,21 +9,17 @@ from fem_core.model_inspection import inspect_model
 def test_static_apdl_builds_manifest_from_explicit_engineering_signals(tmp_path: Path) -> None:
     model = tmp_path / "bridge.apdl"
     model.write_text(
-        "\n".join(
-            [
-                "/PREP7",
-                "ET,1,BEAM188",
-                "MP,EX,1,2.1E11",
-                "MP,PRXY,1,0.3",
-                "SECTYPE,1,BEAM,RECT,MAIN_GIRDER",
-                "N,1,0,0,0",
-                "N,2,10,0,0",
-                "EN,1,1,2",
-                "CM,GIRDER,ELEM",
-                "D,1,UX,0",
-                "F,2,FX,1000",
-            ]
-        ),
+        "/PREP7\n"
+        "ET,1,BEAM188\n"
+        "MP,EX,1,2.1E11\n"
+        "MP,PRXY,1,0.3\n"
+        "SECTYPE,1,BEAM,RECT,MAIN_GIRDER\n"
+        "N,1,0,0,0\n"
+        "N,2,10,0,0\n"
+        "EN,1,1,2\n"
+        "CM,GIRDER,ELEM\n"
+        "D,1,UX,0\n"
+        "F,2,FX,1000\n",
         encoding="utf-8",
     )
 
