@@ -40,6 +40,20 @@ def _model(tmp_path: Path) -> str:
     return "model.json"
 
 
+def _python_bundle(tmp_path: Path) -> str:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "materials.py").write_text(
+        Path("tests/fixtures/opensees_bundle/materials.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (project / "main.py").write_text(
+        Path("tests/fixtures/opensees_bundle/main.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return "project/main.py"
+
+
 def test_opensees_preflight_is_deterministic_without_solving(tmp_path: Path) -> None:
     adapter = get_solver_adapter("opensees")
     report = adapter.preflight(tmp_path, model_path=_model(tmp_path), load_path=_canonical_load(tmp_path))
@@ -60,3 +74,20 @@ def test_opensees_real_transient_solver_produces_run_manifest(tmp_path: Path) ->
     assert result["summary"]["absolutePeakDisplacementM"] > 0.0
     assert (tmp_path / result["outputs"]["responseCsv"]).is_file()
     assert (tmp_path / result["outputs"]["runManifest"]).is_file()
+
+
+def test_opensees_python_build_inspection_realizes_domain_without_analyzing(tmp_path: Path) -> None:
+    adapter = get_solver_adapter("opensees")
+    if not adapter.status()["available"]:
+        pytest.skip("opensees optional dependency is not installed")
+
+    report = adapter.build_inspect(tmp_path, model_path=_python_bundle(tmp_path))
+
+    assert report["kind"] == "solver_build_inspection"
+    assert report["solver"] == "OPENSEESPY"
+    assert report["analysisAdvanced"] is False
+    assert report["interceptedAnalyzeCalls"] == 1
+    assert report["nodeTags"] == [1, 2]
+    assert report["elementTags"] == [1]
+    assert report["nodeCoordinates"]["1"] == [0.0]
+    assert report["nodeCoordinates"]["2"] == [0.0]
