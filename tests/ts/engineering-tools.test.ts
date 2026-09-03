@@ -15,8 +15,11 @@ const cwd = process.cwd();
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
   assert.equal(report.kind, "model_inspection");
+  assert.equal(report.schemaVersion, "1.1");
   assert.equal(report.summary.explicitNodeCommandCount, 2);
-  assert.deepEqual(report.elementTypes, ["BEAM188"]);
+  assert.equal(report.validation.executionEligibility, "STATICALLY_ELIGIBLE");
+  assert.deepEqual(report.manifest.topology.elementTypes, [{ id: "1", name: "BEAM188" }]);
+  assert.equal(report.manifest.topology.nodeCount.value, 2);
 });
 
 test("load inspection crosses the versioned TypeScript/Python bridge", async () => {
