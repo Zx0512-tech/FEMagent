@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -90,8 +91,6 @@ def _dependencies_for_text(source: str, text: str) -> list[dict[str, str]]:
 
 def _file_record(workspace: Path, path: Path, role: str) -> dict[str, Any]:
     content = path.read_bytes()
-    from hashlib import sha256
-
     return {
         "path": workspace_relative_path(workspace, path),
         "role": role,
@@ -121,6 +120,11 @@ def discover_ansys_bundle(workspace: Path, raw_path: str) -> dict[str, Any]:
             details={"path": workspace_relative_path(root, entrypoint)},
         )
 
+    # Mechanical APDL /INPUT defaults Dir to the current working directory, and *USE
+    # also resolves unqualified macro paths from the working/search path. FEMagent
+    # defines the bundle working directory as the entrypoint directory so staged
+    # execution can reproduce relative references deterministically.
+    working_directory = entrypoint.parent.resolve()
     entry_relative = workspace_relative_path(root, entrypoint)
     roles: dict[str, str] = {entry_relative: "ENTRYPOINT"}
     dependencies: list[dict[str, Any]] = []
@@ -139,32 +143,37 @@ def discover_ansys_bundle(workspace: Path, raw_path: str) -> dict[str, Any]:
 
         for dependency in _dependencies_for_text(source_relative, text):
             requested = Path(dependency["target"])
-            candidate = (
-                requested.resolve()
-                if requested.is_absolute()
-                else (source_path.parent / requested).resolve()
-            )
             target_relative: str | None = None
-            try:
-                candidate.relative_to(root)
-            except ValueError:
-                status = "BLOCKED_OUTSIDE_WORKSPACE"
+            if requested.is_absolute():
+                status = "BLOCKED_ABSOLUTE_REFERENCE"
                 blocked = True
+                try:
+                    target_relative = workspace_relative_path(root, requested.resolve())
+                except FemCoreError:
+                    target_relative = None
             else:
-                target_relative = workspace_relative_path(root, candidate)
-                if candidate.is_file():
-                    status = "RESOLVED_WORKSPACE"
-                    if candidate.suffix.lower() not in ANSYS_BUNDLE_SUFFIXES:
-                        role = "ENGINEERING_DATA"
-                    else:
-                        role = dependency["role"]
-                    if roles.get(target_relative) != "ENTRYPOINT":
-                        roles[target_relative] = role
-                    if candidate.suffix.lower() in ANSYS_BUNDLE_SUFFIXES:
-                        pending.append(candidate)
-                else:
-                    status = "UNRESOLVED"
+                candidate = (working_directory / requested).resolve()
+                try:
+                    candidate.relative_to(root)
+                except ValueError:
+                    status = "BLOCKED_OUTSIDE_WORKSPACE"
                     blocked = True
+                else:
+                    target_relative = workspace_relative_path(root, candidate)
+                    if candidate.is_file():
+                        status = "RESOLVED_WORKSPACE"
+                        role = (
+                            "ENGINEERING_DATA"
+                            if candidate.suffix.lower() not in ANSYS_BUNDLE_SUFFIXES
+                            else dependency["role"]
+                        )
+                        if roles.get(target_relative) != "ENTRYPOINT":
+                            roles[target_relative] = role
+                        if candidate.suffix.lower() in ANSYS_BUNDLE_SUFFIXES:
+                            pending.append(candidate)
+                    else:
+                        status = "UNRESOLVED"
+                        blocked = True
 
             dependencies.append(
                 {
@@ -176,10 +185,7 @@ def discover_ansys_bundle(workspace: Path, raw_path: str) -> dict[str, Any]:
                 }
             )
 
-    files = [
-        _file_record(root, root / relative, role)
-        for relative, role in sorted(roles.items())
-    ]
+    files = [_file_record(root, root / relative, role) for relative, role in sorted(roles.items())]
     fingerprint = bundle_fingerprint(files)
     warnings: list[str] = []
     if blocked:
@@ -194,6 +200,7 @@ def discover_ansys_bundle(workspace: Path, raw_path: str) -> dict[str, Any]:
             "path": entry_relative,
             "sha256": next(item["sha256"] for item in files if item["path"] == entry_relative),
         },
+        "workingDirectory": workspace_relative_path(root, working_directory),
         "files": files,
         "dependencies": dependencies,
         "bundleFingerprint": fingerprint,
