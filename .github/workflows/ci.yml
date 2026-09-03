@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  bootstrap:
-    name: Bootstrap bridge
+  bridge:
+    name: Engineering tool bridge
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -42,14 +42,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: TypeScript bridge test
+      - name: TypeScript engineering bridge tests
         run: pnpm test:ts
 
-      - name: Python core tests
+      - name: Python engineering core tests
         run: python -m pytest
 
       - name: Python lint
         run: python -m ruff check fem_core tests/python
 
-      - name: Bootstrap health smoke
+      - name: Health smoke
         run: pnpm fem:health
