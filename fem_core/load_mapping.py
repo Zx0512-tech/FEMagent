@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 
 from fem_core.load_formats import LoadTable, number_or_none
@@ -60,7 +61,7 @@ def detect_time_column(profiles: list[dict[str, Any]], rows: tuple[dict[str, str
         values = _numeric_column(rows, name)
         if values is None or len(values) < 2:
             continue
-        if any(current <= previous for previous, current in zip(values, values[1:])):
+        if any(current <= previous for previous, current in pairwise(values)):
             continue
         step = _uniform_step(values)
         if step is None:
@@ -258,7 +259,7 @@ def _numeric_column(rows: tuple[dict[str, str], ...], name: str) -> list[float] 
 
 
 def _uniform_step(values: list[float]) -> float | None:
-    steps = [current - previous for previous, current in zip(values, values[1:])]
+    steps = [current - previous for previous, current in pairwise(values)]
     if not steps or steps[0] <= 0:
         return None
     reference = steps[0]
