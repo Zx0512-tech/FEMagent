@@ -7,9 +7,9 @@ from fem_core.solvers.base import SolverAdapter
 def get_solver_adapter(name: str) -> SolverAdapter:
     normalized = str(name).strip().lower()
     if normalized in {"opensees", "openseespy"}:
-        from fem_core.solvers.opensees import OpenSeesAdapter
+        from fem_core.solvers.opensees_python import OpenSeesBundleAdapter
 
-        return OpenSeesAdapter()
+        return OpenSeesBundleAdapter()
     raise FemCoreError(
         "UNSUPPORTED_SOLVER",
         "The requested FEM solver adapter is not available",
