@@ -4,11 +4,62 @@ import argparse
 import csv
 import json
 import math
+import os
+import runpy
+import sys
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 from fem_core.solvers.opensees import read_canonical_uniform_excitation, read_opensees_model_spec
+
+
+def run_build_inspection(model_path: Path) -> dict[str, Any]:
+    import openseespy.opensees as ops
+
+    entrypoint = model_path.resolve()
+    project_dir = entrypoint.parent
+    original_cwd = Path.cwd()
+    original_sys_path = list(sys.path)
+    original_analyze = ops.analyze
+    intercepted_analyze_calls = 0
+
+    def blocked_analyze(*_args: Any, **_kwargs: Any) -> int:
+        nonlocal intercepted_analyze_calls
+        intercepted_analyze_calls += 1
+        return 0
+
+    ops.wipe()
+    try:
+        ops.analyze = blocked_analyze
+        os.chdir(project_dir)
+        sys.path.insert(0, str(project_dir))
+        runpy.run_path(str(entrypoint), run_name="__femagent_build_inspection__")
+        node_tags = sorted(int(tag) for tag in ops.getNodeTags())
+        element_tags = sorted(int(tag) for tag in ops.getEleTags())
+        coordinates = {
+            str(tag): [float(value) for value in ops.nodeCoord(tag)]
+            for tag in node_tags
+        }
+        analysis_time = float(ops.getTime())
+        engine_version = str(ops.version()) if hasattr(ops, "version") else None
+        return {
+            "status": "COMPLETED",
+            "mode": "BUILD_INSPECT",
+            "packageVersion": version("openseespy"),
+            "engineVersion": engine_version,
+            "analysisAdvanced": False,
+            "interceptedAnalyzeCalls": intercepted_analyze_calls,
+            "nodeTags": node_tags,
+            "elementTags": element_tags,
+            "nodeCoordinates": coordinates,
+            "analysisTime": analysis_time,
+        }
+    finally:
+        ops.analyze = original_analyze
+        sys.path[:] = original_sys_path
+        os.chdir(original_cwd)
+        ops.wipe()
 
 
 def run_worker(model_path: Path, load_path: Path, run_dir: Path) -> dict[str, Any]:
@@ -105,14 +156,24 @@ def run_worker(model_path: Path, load_path: Path, run_dir: Path) -> dict[str, An
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=("run", "build-inspect"), default="run")
     parser.add_argument("--model", required=True)
-    parser.add_argument("--load", required=True)
-    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--load")
+    parser.add_argument("--run-dir")
     parser.add_argument("--result", required=True)
     args = parser.parse_args()
     result_path = Path(args.result).resolve()
     try:
-        result = run_worker(Path(args.model).resolve(), Path(args.load).resolve(), Path(args.run_dir).resolve())
+        if args.mode == "build-inspect":
+            result = run_build_inspection(Path(args.model).resolve())
+        else:
+            if not args.load or not args.run_dir:
+                raise ValueError("run mode requires --load and --run-dir")
+            result = run_worker(
+                Path(args.model).resolve(),
+                Path(args.load).resolve(),
+                Path(args.run_dir).resolve(),
+            )
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
         return 0
     except Exception as exc:  # noqa: BLE001 - isolated native-solver boundary must fail closed.
