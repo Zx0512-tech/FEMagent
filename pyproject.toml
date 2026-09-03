@@ -7,7 +7,9 @@ name = "femagent-core"
 version = "0.1.0"
 description = "Deterministic finite-element engineering core for FEMagent"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+  "openpyxl>=3.1,<4",
+]
 
 [project.optional-dependencies]
 dev = [
