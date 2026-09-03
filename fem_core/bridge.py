@@ -6,6 +6,7 @@ from typing import Any
 from fem_core.errors import FemCoreError
 from fem_core.health import build_health_report
 from fem_core.load_inspection import inspect_load
+from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
 
@@ -14,6 +15,13 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise FemCoreError("INVALID_ARGUMENT", f"'{key}' must be a non-empty string", details={"field": key})
+    return value
+
+
+def _required_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        raise FemCoreError("INVALID_ARGUMENT", f"'{key}' must be a JSON object", details={"field": key})
     return value
 
 
@@ -45,6 +53,16 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = inspect_model(workspace, _required_text(payload, "path"))
         elif command == "load.inspect":
             result = inspect_load(workspace, _required_text(payload, "path"))
+        elif command == "load.standardize":
+            output_path = payload.get("outputPath")
+            if output_path is not None and not isinstance(output_path, str):
+                raise FemCoreError("INVALID_ARGUMENT", "'outputPath' must be a string when provided")
+            result = standardize_load(
+                workspace,
+                _required_text(payload, "path"),
+                _required_object(payload, "mapping"),
+                output_path=output_path,
+            )
         else:
             raise FemCoreError("UNKNOWN_COMMAND", "Unknown FEM engineering command", details={"command": command})
         return success_envelope(request_id=request_id, command=command, result=result)
