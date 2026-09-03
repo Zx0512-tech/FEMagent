@@ -157,9 +157,9 @@ def test_ansys_real_run_executes_staged_bundle_and_records_provenance(tmp_path: 
     assert (tmp_path / result["outputs"]["solverLog"]).is_file()
     assert (tmp_path / result["outputs"]["runtimeOutput"]).is_file()
     assert (tmp_path / result["outputs"]["runManifest"]).is_file()
-    runtime_cwd = (tmp_path / ".femagent" / "runs" / result["runId"] / "fake_runtime_cwd.txt")
+    runtime_cwd = staged_root / "fake_runtime_cwd.txt"
     assert runtime_cwd.is_file()
-    assert Path(runtime_cwd.read_text(encoding="utf-8")).resolve() == runtime_cwd.parent.resolve()
+    assert Path(runtime_cwd.read_text(encoding="utf-8")).resolve() == staged_root.resolve()
 
 
 def test_fake_runtime_is_executable_on_posix(tmp_path: Path) -> None:
