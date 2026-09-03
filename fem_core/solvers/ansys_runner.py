@@ -18,7 +18,7 @@ def sanitize_apdl_for_build(text: str) -> str:
     output: list[str] = []
     for line in text.splitlines():
         command = line.split("!", 1)[0].strip().upper()
-        if command.startswith("/SOLU") or command == "SOLU" or command.startswith("/POST"):
+        if command.startswith(("/SOLU", "/POST")) or command == "SOLU":
             output.append(f"! FEMagent build-only stopped before: {line.strip()}")
             break
         if command.startswith(("SOLVE", "LSSOLVE", "MSSOLVE", "PSOLVE")):
