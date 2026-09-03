@@ -15,9 +15,21 @@ class SolverAdapter(ABC):
         """Report whether the backend runtime is installed without running an analysis."""
 
     @abstractmethod
-    def preflight(self, workspace: Path, *, model_path: str, load_path: str) -> dict[str, Any]:
+    def preflight(
+        self,
+        workspace: Path,
+        *,
+        model_path: str,
+        load_path: str | None = None,
+    ) -> dict[str, Any]:
         """Validate model/load compatibility without performing the requested solve."""
 
     @abstractmethod
-    def run(self, workspace: Path, *, model_path: str, load_path: str) -> dict[str, Any]:
+    def run(
+        self,
+        workspace: Path,
+        *,
+        model_path: str,
+        load_path: str | None = None,
+    ) -> dict[str, Any]:
         """Execute the real solver and return a structured run manifest."""
