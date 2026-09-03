@@ -37,10 +37,61 @@ export interface FemHealth {
   solvers: { ansys: "not_checked"; opensees: "not_checked" };
 }
 
-export interface FemModelInspection {
+export type FemModelValidationStatus = "PASSED" | "LIMITED" | "REJECTED";
+export type FemModelExecutionEligibility =
+  | "STATICALLY_ELIGIBLE"
+  | "REQUIRES_SOLVER_INSPECTION"
+  | "INCOMPLETE"
+  | "REJECTED";
+
+export interface FemModelManifest {
   schemaVersion: "1.0";
+  modelFormat: "ANSYS_APDL_TEXT";
+  solverCompatibility: {
+    ansys:
+      | "STATIC_TEXT_COMPATIBLE"
+      | "REQUIRES_SOLVER_INSPECTION"
+      | "INCOMPLETE_MODEL"
+      | "REJECTED_UNSAFE";
+    opensees: "NOT_DIRECTLY_COMPATIBLE";
+  };
+  topology: {
+    nodeCount: { value: number | null; basis: string };
+    elementCount: { value: number | null; basis: string };
+    coordinateBounds: null | {
+      basis: "EXPLICIT_NUMERIC_N_COMMANDS";
+      sampledNodeCount: number;
+      x: { min: number; max: number };
+      y: { min: number; max: number };
+      z: { min: number; max: number };
+    };
+    elementTypes: Array<{ id: string; name: string }>;
+  };
+  materials: Array<{ id: string; properties: string[] }>;
+  sections: Array<{
+    id: string;
+    type: string;
+    subtype: string | null;
+    name: string | null;
+  }>;
+  components: Array<{ name: string; entity: string }>;
+  boundaries: {
+    explicitConstraintCommandCount: number;
+    labels: string[];
+  };
+  existingLoadSignals: Array<{ command: string; count: number }>;
+  generation: {
+    parametric: boolean;
+    blockBased: boolean;
+    doLoopCount: number;
+  };
+  warnings: string[];
+}
+
+export interface FemModelInspection {
+  schemaVersion: "1.1";
   kind: "model_inspection";
-  inspectionLevel: "STATIC_TEXT_ONLY";
+  inspectionLevel: "STATIC_APDL_V1";
   format: "ANSYS_APDL_TEXT";
   source: {
     path: string;
@@ -50,17 +101,33 @@ export interface FemModelInspection {
     sizeBytes: number;
     encoding: string;
   };
+  validation: {
+    status: FemModelValidationStatus;
+    executionEligibility: FemModelExecutionEligibility;
+    checks: {
+      prep7: "PASSED" | "FAILED";
+      nodeDefinitions: "PASSED" | "FAILED";
+      elementDefinitions: "PASSED" | "FAILED";
+      forbiddenCommandScan: "PASSED" | "FAILED";
+    };
+    issues: Array<{ code: string; severity: "ERROR" | "INFO" }>;
+    forbiddenCommands: Array<{ line: number; marker: string; command: string }>;
+  };
   summary: {
     lineCount: number;
     explicitNodeCommandCount: number;
     explicitElementCommandCount: number;
-    blockCommandCount: number;
+    nodeBlockCount: number;
+    elementBlockCount: number;
     doLoopCount: number;
-    parametricSignals: boolean;
+    parametricModel: boolean;
+    blockBasedModel: boolean;
+    materialDefinitionCount: number;
+    sectionDefinitionCount: number;
+    componentDefinitionCount: number;
+    explicitConstraintCommandCount: number;
   };
-  elementTypes: string[];
-  signals: { hasPrep7: boolean };
-  warnings: string[];
+  manifest: FemModelManifest;
 }
 
 export interface FemLoadInspection {
