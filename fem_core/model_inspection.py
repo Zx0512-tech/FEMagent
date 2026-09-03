@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.errors import FemCoreError
+from fem_core.opensees_python_inspection import inspect_opensees_python
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.text import decode_engineering_text
 
 MAX_MODEL_BYTES = 50 * 1024 * 1024
-SUPPORTED_MODEL_SUFFIXES = frozenset({".cdb", ".inp", ".apdl", ".mac", ".dat", ".txt"})
+ANSYS_MODEL_SUFFIXES = frozenset({".cdb", ".inp", ".apdl", ".mac", ".dat", ".txt"})
+SUPPORTED_MODEL_SUFFIXES = ANSYS_MODEL_SUFFIXES | {".py"}
 FORBIDDEN_APDL_COMMANDS = ("/sys", "/syp", "/delete", "~")
 
 _NODE_COMMAND = re.compile(r"^\s*n\s*,", re.IGNORECASE)
@@ -86,11 +88,18 @@ def _execution_eligibility(
 
 def inspect_model(workspace: Path, raw_path: str) -> dict[str, Any]:
     path = resolve_workspace_file(workspace, raw_path)
+    if path.suffix.lower() == ".py":
+        return inspect_opensees_python(workspace, raw_path)
+    return _inspect_ansys_model(workspace, raw_path, path=path)
+
+
+def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = None) -> dict[str, Any]:
+    path = path or resolve_workspace_file(workspace, raw_path)
     suffix = path.suffix.lower()
-    if suffix not in SUPPORTED_MODEL_SUFFIXES:
+    if suffix not in ANSYS_MODEL_SUFFIXES:
         raise FemCoreError(
             "UNSUPPORTED_MODEL_FORMAT",
-            "Model Intelligence V1 supports ANSYS APDL/CDB-style text files only",
+            "Model inspection supports ANSYS APDL/CDB text or OpenSees Python entrypoints",
             details={"suffix": suffix, "supported": sorted(SUPPORTED_MODEL_SUFFIXES)},
         )
 
