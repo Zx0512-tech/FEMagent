@@ -108,6 +108,26 @@ test("OpenSees Python bundle preflight and run use the existing generic solver t
   assert.equal(run.summary.elementCount, 1);
 });
 
+test("ANSYS status and fail-closed preflight use the generic solver bridge contract", async () => {
+  const previous = process.env.FEM_ANSYS_EXECUTABLE;
+  process.env.FEM_ANSYS_EXECUTABLE = "tests/fixtures/definitely-missing-ansys-runtime";
+  try {
+    const status = await runFemSolverStatus(cwd, "ansys");
+    const statusSolver: "ANSYS" = status.solver;
+    assert.equal(statusSolver, "ANSYS");
+    assert.equal(status.available, false);
+
+    const preflight = await runFemSolverPreflight(cwd, "ansys", "tests/fixtures/simple_model.apdl");
+    const preflightSolver: "ANSYS" = preflight.solver;
+    assert.equal(preflightSolver, "ANSYS");
+    assert.equal(preflight.status, "BLOCKED");
+    assert.ok(preflight.checks.some((check) => check.code === "SOLVER_AVAILABLE" && check.status === "FAILED"));
+  } finally {
+    if (previous === undefined) delete process.env.FEM_ANSYS_EXECUTABLE;
+    else process.env.FEM_ANSYS_EXECUTABLE = previous;
+  }
+});
+
 test("Python domain errors preserve stable error codes", async () => {
   await assert.rejects(
     () => runFemModelInspect(cwd, "tests/fixtures/missing.apdl"),
