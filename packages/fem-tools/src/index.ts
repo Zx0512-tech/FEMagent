@@ -7,7 +7,10 @@ export {
   type FemBridgeSuccess,
   type FemHealth,
   type FemLoadInspection,
+  type FemLoadManifest,
+  type FemLoadMappingSuggestion,
   type FemModelInspection,
+  type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 export {
   FemBridgeError,
@@ -15,6 +18,7 @@ export {
   runFemCoreRequest,
   runFemHealth,
   runFemLoadInspect,
+  runFemLoadStandardize,
   runFemModelInspect,
   type FemBridgeOptions,
 } from "./pythonBridge.js";

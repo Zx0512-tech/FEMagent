@@ -130,22 +130,80 @@ export interface FemModelInspection {
   manifest: FemModelManifest;
 }
 
-export interface FemLoadInspection {
+export interface FemLoadMappingSuggestion {
+  mapping: {
+    version?: number;
+    loadKind?: string | null;
+    timeColumn?: string | null;
+    timeUnit?: string | null;
+    timeStepS?: number | null;
+    valueColumn?: string | null;
+    quantity?: string | null;
+    sourceUnit?: string | null;
+    applicationType?: string | null;
+    component?: string | null;
+    scale?: number;
+  };
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  reasons: string[];
+  warnings: string[];
+  alternatives: Record<string, unknown>;
+  unitSource: string;
+  standardizeDecision: "ASK" | "AUTO";
+  requiredConfirmations: string[];
+}
+
+export interface FemLoadManifest {
   schemaVersion: "1.0";
-  kind: "load_inspection";
-  inspectionLevel: "TABULAR_TEXT";
-  format: string;
+  kind: "load_manifest";
   source: {
     path: string;
     fileName: string;
     suffix: string;
     sha256: string;
     sizeBytes: number;
-    encoding: string;
+    encoding: string | null;
   };
+  format: string;
+  selfDescribing: boolean;
+  structure: {
+    rowCount: number;
+    columnCount: number;
+    columns: string[];
+    delimiter: string | null;
+    hasHeader: boolean;
+  };
+  time: {
+    column: string | null;
+    stepS: number | null;
+    uniform: boolean;
+    sourceUnit: string | null;
+    basis: string;
+  };
+  channels: Array<{
+    column: string;
+    numericCount: number;
+    missingCount: number;
+    min: number | null;
+    max: number | null;
+    unitHint: string | null;
+    quantityHint: string | null;
+    selectedBySuggestion: boolean;
+  }>;
+  declaredMetadata: Record<string, unknown>;
+  suggestedMapping: FemLoadMappingSuggestion;
+  warnings: string[];
+}
+
+export interface FemLoadInspection {
+  schemaVersion: "1.1";
+  kind: "load_inspection";
+  inspectionLevel: "TABULAR_DATA" | "SELF_DESCRIBING_RECORD";
+  format: string;
+  source: FemLoadManifest["source"];
   rowCount: number;
   columnCount: number;
-  delimiter: string;
+  delimiter: string | null;
   hasHeader: boolean;
   columns: Array<{
     name: string;
@@ -153,8 +211,43 @@ export interface FemLoadInspection {
     missingCount: number;
     min: number | null;
     max: number | null;
+    unitHint: string | null;
     timeCandidate: boolean;
   }>;
   sampleRows: Array<Record<string, string>>;
+  declaredMetadata: Record<string, unknown>;
+  suggestedMapping: FemLoadMappingSuggestion;
+  manifest: FemLoadManifest;
   warnings: string[];
+}
+
+export interface FemStandardizedLoad {
+  schemaVersion: "1.0";
+  kind: "standardized_load";
+  format: "FEMAGENT_LOAD_CSV_V1";
+  source: {
+    path: string;
+    fileName: string;
+    sha256: string;
+    format: string;
+  };
+  output: {
+    path: string;
+    sha256: string;
+    sizeBytes: number;
+    encoding: "utf-8";
+    delimiter: ",";
+  };
+  loadKind: string;
+  sampleCount: number;
+  channelCount: number;
+  outputRowCount: number;
+  time: {
+    startS: number;
+    endS: number;
+    strictlyIncreasing: true;
+    source: Record<string, unknown>;
+  };
+  channels: Array<Record<string, unknown>>;
+  validation: { nanCount: 0; timeStrictlyIncreasing: true };
 }

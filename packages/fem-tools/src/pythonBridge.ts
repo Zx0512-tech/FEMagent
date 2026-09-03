@@ -8,6 +8,7 @@ import {
   type FemHealth,
   type FemLoadInspection,
   type FemModelInspection,
+  type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -166,4 +167,19 @@ export async function runFemModelInspect(cwd: string, path: string, signal?: Abo
 
 export async function runFemLoadInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemLoadInspection> {
   return await runFemCoreRequest<FemLoadInspection>(cwd, "load.inspect", { path }, { signal });
+}
+
+export async function runFemLoadStandardize(
+  cwd: string,
+  path: string,
+  mapping: Record<string, unknown>,
+  outputPath?: string,
+  signal?: AbortSignal,
+): Promise<FemStandardizedLoad> {
+  return await runFemCoreRequest<FemStandardizedLoad>(
+    cwd,
+    "load.standardize",
+    { path, mapping, ...(outputPath ? { outputPath } : {}) },
+    { signal },
+  );
 }
