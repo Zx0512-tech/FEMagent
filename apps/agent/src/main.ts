@@ -13,7 +13,10 @@ const prompt = process.argv.slice(2).join(" ").trim()
 const resourceLoader = new DefaultResourceLoader({
   cwd,
   agentDir: process.env.PI_AGENT_DIR || resolve(cwd, ".pi"),
-  additionalExtensionPaths: [resolve(cwd, ".pi/extensions/fem-tools.ts")],
+  additionalExtensionPaths: [
+    resolve(cwd, ".pi/extensions/fem-tools.ts"),
+    resolve(cwd, ".pi/extensions/permission-gate.ts"),
+  ],
 });
 await resourceLoader.reload();
 
@@ -30,6 +33,9 @@ const { session } = await createAgentSession({
     "fem_model_inspect",
     "fem_load_inspect",
     "fem_load_standardize",
+    "fem_solver_status",
+    "fem_solver_preflight",
+    "fem_solver_run",
   ],
 });
 

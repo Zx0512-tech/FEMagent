@@ -3,11 +3,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   DEFAULT_BRIDGE_TIMEOUT_MS,
+  DEFAULT_SOLVER_RUN_TIMEOUT_MS,
   FEM_BRIDGE_PROTOCOL,
   type FemBridgeEnvelope,
   type FemHealth,
   type FemLoadInspection,
   type FemModelInspection,
+  type FemSolverPreflight,
+  type FemSolverRun,
+  type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 
@@ -181,5 +185,43 @@ export async function runFemLoadStandardize(
     "load.standardize",
     { path, mapping, ...(outputPath ? { outputPath } : {}) },
     { signal },
+  );
+}
+
+export async function runFemSolverStatus(
+  cwd: string,
+  solver: string,
+  signal?: AbortSignal,
+): Promise<FemSolverStatus> {
+  return await runFemCoreRequest<FemSolverStatus>(cwd, "solver.status", { solver }, { signal });
+}
+
+export async function runFemSolverPreflight(
+  cwd: string,
+  solver: string,
+  modelPath: string,
+  loadPath: string,
+  signal?: AbortSignal,
+): Promise<FemSolverPreflight> {
+  return await runFemCoreRequest<FemSolverPreflight>(
+    cwd,
+    "solver.preflight",
+    { solver, modelPath, loadPath },
+    { signal },
+  );
+}
+
+export async function runFemSolverRun(
+  cwd: string,
+  solver: string,
+  modelPath: string,
+  loadPath: string,
+  signal?: AbortSignal,
+): Promise<FemSolverRun> {
+  return await runFemCoreRequest<FemSolverRun>(
+    cwd,
+    "solver.run",
+    { solver, modelPath, loadPath },
+    { signal, timeoutMs: DEFAULT_SOLVER_RUN_TIMEOUT_MS },
   );
 }

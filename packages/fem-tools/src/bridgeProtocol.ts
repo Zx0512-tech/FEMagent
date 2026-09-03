@@ -1,5 +1,6 @@
 export const FEM_BRIDGE_PROTOCOL = "femagent.bridge/v1" as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 10_000;
+export const DEFAULT_SOLVER_RUN_TIMEOUT_MS = 90_000;
 
 export interface FemBridgeMeta {
   coreVersion: string;
@@ -250,4 +251,55 @@ export interface FemStandardizedLoad {
   };
   channels: Array<Record<string, unknown>>;
   validation: { nanCount: 0; timeStrictlyIncreasing: true };
+}
+
+export interface FemSolverStatus {
+  schemaVersion: "1.0";
+  kind: "solver_status";
+  solver: "OPENSEESPY";
+  available: boolean;
+  package: "openseespy";
+  packageVersion: string | null;
+  engineVersion: string | null;
+  executionMode: "ISOLATED_WORKER_PROCESS";
+  capabilities: string[];
+}
+
+export interface FemSolverPreflight {
+  schemaVersion: "1.0";
+  kind: "solver_preflight";
+  solver: "OPENSEESPY";
+  status: "READY" | "BLOCKED";
+  checks: Array<{ code: string; status: "PASSED" | "FAILED" }>;
+  warnings: Array<Record<string, unknown>>;
+  model: Record<string, unknown>;
+  load: Record<string, unknown>;
+  executionEstimate: { analysisSteps: number };
+}
+
+export interface FemSolverRun {
+  schemaVersion: "1.0";
+  kind: "solver_run";
+  runId: string;
+  caseFingerprint: string;
+  status: "COMPLETED";
+  solver: {
+    name: "OPENSEESPY";
+    packageVersion: string | null;
+    engineVersion: string | null;
+    executionMode: "ISOLATED_WORKER_PROCESS";
+  };
+  model: { path: string; sha256: string };
+  load: { path: string; sha256: string };
+  analysis: Record<string, unknown>;
+  summary: {
+    responseNode: number;
+    responseDof: number;
+    sampleCount: number;
+    minDisplacementM: number;
+    maxDisplacementM: number;
+    absolutePeakDisplacementM: number;
+    timeAtAbsolutePeakS: number;
+  };
+  outputs: Record<string, string>;
 }

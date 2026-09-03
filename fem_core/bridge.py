@@ -9,6 +9,7 @@ from fem_core.load_inspection import inspect_load
 from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
+from fem_core.solvers import get_solver_adapter
 
 
 def _required_text(payload: dict[str, Any], key: str) -> str:
@@ -62,6 +63,22 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 _required_text(payload, "path"),
                 _required_object(payload, "mapping"),
                 output_path=output_path,
+            )
+        elif command == "solver.status":
+            result = get_solver_adapter(_required_text(payload, "solver")).status()
+        elif command == "solver.preflight":
+            adapter = get_solver_adapter(_required_text(payload, "solver"))
+            result = adapter.preflight(
+                workspace,
+                model_path=_required_text(payload, "modelPath"),
+                load_path=_required_text(payload, "loadPath"),
+            )
+        elif command == "solver.run":
+            adapter = get_solver_adapter(_required_text(payload, "solver"))
+            result = adapter.run(
+                workspace,
+                model_path=_required_text(payload, "modelPath"),
+                load_path=_required_text(payload, "loadPath"),
             )
         else:
             raise FemCoreError("UNKNOWN_COMMAND", "Unknown FEM engineering command", details={"command": command})

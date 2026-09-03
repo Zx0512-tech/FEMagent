@@ -1,5 +1,6 @@
 export {
   DEFAULT_BRIDGE_TIMEOUT_MS,
+  DEFAULT_SOLVER_RUN_TIMEOUT_MS,
   FEM_BRIDGE_PROTOCOL,
   type FemBridgeEnvelope,
   type FemBridgeFailure,
@@ -10,6 +11,9 @@ export {
   type FemLoadManifest,
   type FemLoadMappingSuggestion,
   type FemModelInspection,
+  type FemSolverPreflight,
+  type FemSolverRun,
+  type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 export {
@@ -20,5 +24,8 @@ export {
   runFemLoadInspect,
   runFemLoadStandardize,
   runFemModelInspect,
+  runFemSolverPreflight,
+  runFemSolverRun,
+  runFemSolverStatus,
   type FemBridgeOptions,
 } from "./pythonBridge.js";

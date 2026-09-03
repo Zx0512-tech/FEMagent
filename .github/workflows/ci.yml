@@ -12,7 +12,7 @@ jobs:
   bridge:
     name: Engineering tool bridge
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -36,8 +36,8 @@ jobs:
       - name: Install TypeScript dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Install Python core
-        run: python -m pip install -e ".[dev]"
+      - name: Install Python core with OpenSees
+        run: python -m pip install -e ".[dev,opensees]"
 
       - name: Typecheck
         run: pnpm typecheck
@@ -50,6 +50,9 @@ jobs:
 
       - name: Python lint
         run: python -m ruff check fem_core tests/python
+
+      - name: OpenSees adapter availability smoke
+        run: python -c "from fem_core.solvers import get_solver_adapter; s=get_solver_adapter('opensees').status(); assert s['available'], s"
 
       - name: Health smoke
         run: pnpm fem:health
