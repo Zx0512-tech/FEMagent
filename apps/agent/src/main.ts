@@ -21,7 +21,16 @@ const { session } = await createAgentSession({
   cwd,
   resourceLoader,
   sessionManager: SessionManager.inMemory(cwd),
-  tools: ["read", "grep", "find", "ls", "fem_health", "fem_model_inspect", "fem_load_inspect"],
+  tools: [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "fem_health",
+    "fem_model_inspect",
+    "fem_load_inspect",
+    "fem_load_standardize",
+  ],
 });
 
 session.subscribe((event) => {
