@@ -4,7 +4,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from fem_core.load_formats import read_load_table, number_or_none
+from fem_core.errors import FemCoreError
+from fem_core.load_formats import number_or_none, read_load_table
 from fem_core.load_mapping import build_mapping_suggestion, detect_time_column, unit_from_name
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 
@@ -14,8 +15,6 @@ def inspect_load(workspace: Path, raw_path: str) -> dict[str, Any]:
     content = path.read_bytes()
     table = read_load_table(path, content)
     if not table.rows:
-        from fem_core.errors import FemCoreError
-
         raise FemCoreError("NO_LOAD_DATA", "The load file contains no data rows")
 
     profiles: list[dict[str, Any]] = []
