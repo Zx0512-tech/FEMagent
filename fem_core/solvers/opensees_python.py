@@ -122,7 +122,6 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "elementTags": [int(tag) for tag in result.get("elementTags", [])],
             "nodeCoordinates": dict(result.get("nodeCoordinates") or {}),
             "analysisTime": float(result.get("analysisTime") or 0.0),
-            "solver": "OPENSEESPY",
             "packageVersion": result.get("packageVersion"),
             "engineVersion": result.get("engineVersion"),
             "logPath": workspace_relative_path(workspace, log_path),
