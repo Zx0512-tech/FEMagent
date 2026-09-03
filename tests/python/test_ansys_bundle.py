@@ -78,3 +78,17 @@ def test_ansys_include_cannot_escape_workspace(tmp_path: Path) -> None:
     bundle = discover_ansys_bundle(workspace, "main.apdl")
     assert bundle["integrity"] == "BLOCKED"
     assert bundle["dependencies"][0]["status"] == "BLOCKED_OUTSIDE_WORKSPACE"
+
+
+def test_ansys_absolute_include_is_blocked_to_preserve_staged_execution(tmp_path: Path) -> None:
+    dependency = tmp_path / "geometry.mac"
+    dependency.write_text("N,1,0,0,0\nE,1\n", encoding="utf-8")
+    (tmp_path / "main.apdl").write_text(
+        f"/PREP7\n/INPUT,{dependency.as_posix()}\n",
+        encoding="utf-8",
+    )
+
+    bundle = discover_ansys_bundle(tmp_path, "main.apdl")
+
+    assert bundle["integrity"] == "BLOCKED"
+    assert bundle["dependencies"][0]["status"] == "BLOCKED_ABSOLUTE_REFERENCE"
