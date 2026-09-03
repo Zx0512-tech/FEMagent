@@ -32,11 +32,22 @@ const earthquakeMapping = {
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
   assert.equal(report.kind, "model_inspection");
+  if (report.kind !== "model_inspection") throw new Error("expected ANSYS model inspection");
   assert.equal(report.schemaVersion, "1.1");
   assert.equal(report.summary.explicitNodeCommandCount, 2);
   assert.equal(report.validation.executionEligibility, "STATICALLY_ELIGIBLE");
   assert.deepEqual(report.manifest.topology.elementTypes, [{ id: "1", name: "BEAM188" }]);
   assert.equal(report.manifest.topology.nodeCount.value, 2);
+});
+
+test("OpenSees Python bundle inspection crosses the strict JSON bridge", async () => {
+  const report = await runFemModelInspect(cwd, "tests/fixtures/opensees_bundle/main.py");
+  assert.equal(report.kind, "opensees_python_model_inspection");
+  if (report.kind !== "opensees_python_model_inspection") throw new Error("expected OpenSees Python inspection");
+  assert.equal(report.classification, "MODEL_CONFIRMED");
+  assert.equal(report.bundle.integrity, "VALID");
+  assert.ok(report.bundle.files.some((item) => item.path.endsWith("opensees_bundle/materials.py")));
+  assert.equal(report.bundle.bundleFingerprint.length, 64);
 });
 
 test("load inspection crosses the versioned TypeScript/Python bridge", async () => {
