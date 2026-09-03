@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
+  getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
@@ -12,6 +13,7 @@ const prompt = process.argv.slice(2).join(" ").trim()
 
 const resourceLoader = new DefaultResourceLoader({
   cwd,
+  agentDir: getAgentDir(),
   additionalExtensionPaths: [resolve(cwd, ".pi/extensions/fem-tools.ts")],
 });
 await resourceLoader.reload();
