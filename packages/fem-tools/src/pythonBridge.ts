@@ -1,20 +1,39 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+
+import {
+  DEFAULT_BRIDGE_TIMEOUT_MS,
+  FEM_BRIDGE_PROTOCOL,
+  type FemBridgeEnvelope,
+  type FemHealth,
+  type FemLoadInspection,
+  type FemModelInspection,
+} from "./bridgeProtocol.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
-export interface FemHealth {
-  status: "ok";
-  core: "fem_core";
-  coreVersion: string;
-  python: {
-    version: string;
-    implementation: string;
-  };
-  platform: string;
-  solvers: {
-    ansys: "not_checked";
-    opensees: "not_checked";
-  };
+export class FemBridgeError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "FemBridgeError";
+  }
+}
+
+export class FemCoreError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = "FemCoreError";
+  }
+}
+
+export interface FemBridgeOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  requestId?: string;
 }
 
 function pythonExecutable(): string {
@@ -23,71 +42,128 @@ function pythonExecutable(): string {
   return process.platform === "win32" ? "python" : "python3";
 }
 
-export async function runFemCoreCommand<T>(
+function parseEnvelope<T>(raw: string, requestId: string): FemBridgeEnvelope<T> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new FemBridgeError("INVALID_BRIDGE_JSON", `fem_core returned invalid JSON: ${(error as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new FemBridgeError("INVALID_BRIDGE_ENVELOPE", "fem_core response must be a JSON object");
+  }
+  const envelope = parsed as Partial<FemBridgeEnvelope<T>>;
+  if (envelope.protocol !== FEM_BRIDGE_PROTOCOL) {
+    throw new FemBridgeError("PROTOCOL_MISMATCH", "fem_core returned an unsupported bridge protocol");
+  }
+  if (envelope.requestId !== requestId) {
+    throw new FemBridgeError("REQUEST_ID_MISMATCH", "fem_core response requestId does not match the request");
+  }
+  if (typeof envelope.ok !== "boolean") {
+    throw new FemBridgeError("INVALID_BRIDGE_ENVELOPE", "fem_core response is missing the ok flag");
+  }
+  return envelope as FemBridgeEnvelope<T>;
+}
+
+export async function runFemCoreRequest<T>(
   cwd: string,
-  args: readonly string[],
-  signal?: AbortSignal,
+  command: string,
+  payload: Record<string, unknown> = {},
+  options: FemBridgeOptions = {},
 ): Promise<T> {
+  const requestId = options.requestId ?? randomUUID();
+  const timeoutMs = options.timeoutMs ?? Number(process.env.FEM_CORE_TIMEOUT_MS || DEFAULT_BRIDGE_TIMEOUT_MS);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new FemBridgeError("INVALID_TIMEOUT", "FEM bridge timeout must be a positive finite number");
+  }
+
   return await new Promise<T>((resolve, reject) => {
-    const child = spawn(pythonExecutable(), ["-m", "fem_core.cli", ...args], {
+    const child = spawn(pythonExecutable(), ["-m", "fem_core.cli", "bridge"], {
       cwd,
       env: process.env,
       windowsHide: true,
-      signal,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timer: NodeJS.Timeout | undefined;
 
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+    };
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
+      cleanup();
       reject(error);
+    };
+    const onAbort = () => {
+      child.kill();
+      fail(new FemBridgeError("BRIDGE_ABORTED", "FEM bridge request was aborted"));
     };
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-
     child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
       if (Buffer.byteLength(stdout, "utf8") > MAX_OUTPUT_BYTES) {
         child.kill();
-        fail(new Error("fem_core stdout exceeded the 1 MiB bootstrap limit"));
+        fail(new FemBridgeError("BRIDGE_OUTPUT_TOO_LARGE", "fem_core stdout exceeded the 1 MiB bridge limit"));
       }
     });
-
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
       if (Buffer.byteLength(stderr, "utf8") > MAX_OUTPUT_BYTES) {
         child.kill();
-        fail(new Error("fem_core stderr exceeded the 1 MiB bootstrap limit"));
+        fail(new FemBridgeError("BRIDGE_OUTPUT_TOO_LARGE", "fem_core stderr exceeded the 1 MiB bridge limit"));
       }
     });
-
-    child.on("error", (error) => {
-      fail(new Error(`Unable to start FEM Python core: ${error.message}`));
-    });
-
+    child.on("error", (error) => fail(new FemBridgeError("BRIDGE_START_FAILED", `Unable to start FEM Python core: ${error.message}`)));
     child.on("close", (code) => {
       if (settled) return;
       if (code !== 0) {
-        fail(new Error(`fem_core exited with code ${code}: ${stderr.trim() || "no stderr"}`));
+        fail(new FemBridgeError("BRIDGE_PROCESS_FAILED", `fem_core exited with code ${code}: ${stderr.trim() || "no stderr"}`));
         return;
       }
-
       try {
-        const parsed = JSON.parse(stdout.trim()) as T;
+        const envelope = parseEnvelope<T>(stdout.trim(), requestId);
+        if (!envelope.ok) {
+          fail(new FemCoreError(envelope.error.code, envelope.error.message, envelope.error.details));
+          return;
+        }
         settled = true;
-        resolve(parsed);
+        cleanup();
+        resolve(envelope.result);
       } catch (error) {
-        fail(new Error(`fem_core returned invalid JSON: ${(error as Error).message}`));
+        fail(error as Error);
       }
     });
+
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      child.kill();
+      fail(new FemBridgeError("BRIDGE_TIMEOUT", `FEM bridge request exceeded ${timeoutMs} ms`));
+    }, timeoutMs);
+
+    child.stdin.end(JSON.stringify({ protocol: FEM_BRIDGE_PROTOCOL, requestId, command, payload }));
   });
 }
 
 export async function runFemHealth(cwd: string, signal?: AbortSignal): Promise<FemHealth> {
-  return await runFemCoreCommand<FemHealth>(cwd, ["health"], signal);
+  return await runFemCoreRequest<FemHealth>(cwd, "health", {}, { signal });
+}
+
+export async function runFemModelInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemModelInspection> {
+  return await runFemCoreRequest<FemModelInspection>(cwd, "model.inspect", { path }, { signal });
+}
+
+export async function runFemLoadInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemLoadInspection> {
+  return await runFemCoreRequest<FemLoadInspection>(cwd, "load.inspect", { path }, { signal });
 }

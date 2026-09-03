@@ -1,0 +1,7 @@
+! FEMagent PR2 fixture
+/PREP7
+ET,1,BEAM188
+N,1,0,0,0
+N,2,1,0,0
+E,1,2
+FINISH
