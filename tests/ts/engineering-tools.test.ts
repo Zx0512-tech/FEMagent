@@ -90,6 +90,17 @@ test("OpenSees status, preflight and real solve cross the strict JSON bridge", a
   assert.ok(run.summary.absolutePeakDisplacementM > 0);
 });
 
+test("OpenSees Python bundle preflight uses the existing generic solver tool contract", async () => {
+  const preflight = await runFemSolverPreflight(
+    cwd,
+    "opensees",
+    "tests/fixtures/opensees_bundle/main.py",
+  );
+  assert.equal(preflight.status, "READY");
+  assert.equal(preflight.model.format, "OPENSEES_PYTHON");
+  assert.equal(preflight.load.mode, "MODEL_SCRIPT_MANAGED");
+});
+
 test("Python domain errors preserve stable error codes", async () => {
   await assert.rejects(
     () => runFemModelInspect(cwd, "tests/fixtures/missing.apdl"),
