@@ -1,0 +1,27 @@
+{
+  "name": "femagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "femagent": "pnpm --filter @femagent/agent start",
+    "fem:health": "python -m fem_core.cli health",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:ts": "tsx --test tests/ts/*.test.ts",
+    "test:py": "python -m pytest",
+    "test": "pnpm test:ts && pnpm test:py"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@femagent/fem-tools": "workspace:*",
+    "typebox": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
