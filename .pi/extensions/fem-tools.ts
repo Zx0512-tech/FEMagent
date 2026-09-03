@@ -4,8 +4,15 @@ import {
   runFemLoadInspect,
   runFemLoadStandardize,
   runFemModelInspect,
+  runFemSolverPreflight,
+  runFemSolverRun,
+  runFemSolverStatus,
 } from "@femagent/fem-tools";
 import { Type } from "typebox";
+
+const solverName = Type.Union([Type.Literal("opensees")], {
+  description: "Concrete FEM solver adapter. PR5 supports opensees only.",
+});
 
 export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
@@ -77,6 +84,62 @@ export default function femToolsExtension(pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemLoadStandardize(ctx.cwd, params.path, params.mapping, params.outputPath, signal);
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_solver_status",
+    label: "FEM Solver Status",
+    description: "Check installation and declared capabilities of a concrete SolverAdapter without running a finite-element analysis.",
+    promptSnippet: "Check concrete solver availability before preflight or execution",
+    promptGuidelines: [
+      "Use fem_solver_status when solver availability is unknown; fem_health does not prove a solver is installed.",
+    ],
+    parameters: Type.Object({ solver: solverName }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemSolverStatus(ctx.cwd, params.solver, signal);
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_solver_preflight",
+    label: "Preflight FEM Solver",
+    description: "Validate solver availability plus deterministic model/load compatibility without performing the requested finite-element solve.",
+    promptSnippet: "Preflight the concrete FEM solver with explicit model and canonical load artifacts",
+    promptGuidelines: [
+      "Call fem_solver_preflight before fem_solver_run and resolve BLOCKED checks before requesting execution.",
+      "PR5 OpenSees preflight accepts only the controlled ELASTIC_SDOF model spec and a single canonical EARTHQUAKE UNIFORM_EXCITATION acceleration channel.",
+    ],
+    parameters: Type.Object({
+      solver: solverName,
+      modelPath: Type.String({ description: "Workspace-relative solver model-spec path" }),
+      loadPath: Type.String({ description: "Workspace-relative FEMAGENT_LOAD_CSV_V1 path" }),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemSolverPreflight(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_solver_run",
+    label: "Run FEM Solver",
+    description: "Execute a real finite-element solver through its isolated SolverAdapter worker and return a run manifest with real solver outputs. This is an EXECUTION-risk tool and is permission-gated.",
+    promptSnippet: "Run a user-approved real FEM analysis only after successful solver preflight",
+    promptGuidelines: [
+      "Never call fem_solver_run before fem_solver_preflight reports READY.",
+      "fem_solver_run is an EXECUTION action. The permission gate must obtain user approval before the solver starts.",
+      "Do not describe PR5's controlled ELASTIC_SDOF Golden Path as support for arbitrary uploaded OpenSees Python models.",
+    ],
+    parameters: Type.Object({
+      solver: solverName,
+      modelPath: Type.String({ description: "Workspace-relative solver model-spec path" }),
+      loadPath: Type.String({ description: "Workspace-relative FEMAGENT_LOAD_CSV_V1 path" }),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemSolverRun(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
     },
   });

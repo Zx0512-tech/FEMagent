@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "FEMAGENT_OPENSEES_MODEL_SPEC",
+  "name": "PR5 elastic SDOF Golden Path",
+  "modelType": "ELASTIC_SDOF",
+  "units": {
+    "length": "m",
+    "force": "N",
+    "mass": "kg",
+    "time": "s"
+  },
+  "massKg": 1000.0,
+  "stiffnessNPerM": 39478.41760435743,
+  "dampingRatio": 0.05
+}
