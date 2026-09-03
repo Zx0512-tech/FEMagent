@@ -22,7 +22,7 @@ class SolverAdapter(ABC):
         model_path: str,
         load_path: str | None = None,
     ) -> dict[str, Any]:
-        """Validate model/load compatibility without performing the requested solve."""
+        """Validate a model and optional load; concrete adapters enforce required inputs."""
 
     @abstractmethod
     def run(
@@ -32,4 +32,4 @@ class SolverAdapter(ABC):
         model_path: str,
         load_path: str | None = None,
     ) -> dict[str, Any]:
-        """Execute the real solver and return a structured run manifest."""
+        """Execute the solver; concrete adapters may reject a missing load for their model contract."""
