@@ -27,7 +27,7 @@ It combines an agent runtime with deterministic engineering tools so an LLM can 
          |                     |
          +------ Solver Adapters ------+
                  |             |
-              OpenSees       ANSYS
+              OpenSees     ANSYS (planned)
                  |
              Real Solver Run
                  |
@@ -57,6 +57,8 @@ run(model_path, load_path?)
 ```
 
 The abstract load path is optional because a solver-native model can own its load definition. Each concrete adapter must still enforce whichever inputs its model contract actually requires.
+
+OpenSeesPy is the current real solver adapter. ANSYS remains a planned adapter target; existing ANSYS APDL/CDB Model Intelligence does not by itself mean ANSYS execution is implemented.
 
 ### Solvers
 
