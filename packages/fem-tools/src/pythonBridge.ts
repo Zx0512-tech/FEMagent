@@ -200,13 +200,13 @@ export async function runFemSolverPreflight(
   cwd: string,
   solver: string,
   modelPath: string,
-  loadPath: string,
+  loadPath?: string,
   signal?: AbortSignal,
 ): Promise<FemSolverPreflight> {
   return await runFemCoreRequest<FemSolverPreflight>(
     cwd,
     "solver.preflight",
-    { solver, modelPath, loadPath },
+    { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
     { signal },
   );
 }
@@ -215,13 +215,13 @@ export async function runFemSolverRun(
   cwd: string,
   solver: string,
   modelPath: string,
-  loadPath: string,
+  loadPath?: string,
   signal?: AbortSignal,
 ): Promise<FemSolverRun> {
   return await runFemCoreRequest<FemSolverRun>(
     cwd,
     "solver.run",
-    { solver, modelPath, loadPath },
+    { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
     { signal, timeoutMs: DEFAULT_SOLVER_RUN_TIMEOUT_MS },
   );
 }
