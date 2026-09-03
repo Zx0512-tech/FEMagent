@@ -8,12 +8,12 @@ import {
   type FemBridgeEnvelope,
   type FemHealth,
   type FemLoadInspection,
-  type FemModelInspection,
   type FemSolverPreflight,
   type FemSolverRun,
   type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
+import type { FemAnyModelInspection } from "./modelTypes.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -165,8 +165,8 @@ export async function runFemHealth(cwd: string, signal?: AbortSignal): Promise<F
   return await runFemCoreRequest<FemHealth>(cwd, "health", {}, { signal });
 }
 
-export async function runFemModelInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemModelInspection> {
-  return await runFemCoreRequest<FemModelInspection>(cwd, "model.inspect", { path }, { signal });
+export async function runFemModelInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemAnyModelInspection> {
+  return await runFemCoreRequest<FemAnyModelInspection>(cwd, "model.inspect", { path }, { signal });
 }
 
 export async function runFemLoadInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemLoadInspection> {
