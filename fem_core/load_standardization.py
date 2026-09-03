@@ -4,12 +4,17 @@ import csv
 import io
 import math
 from hashlib import sha256
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 from fem_core.errors import FemCoreError
-from fem_core.load_formats import read_load_table, number_or_none
-from fem_core.pathing import resolve_workspace_file, resolve_workspace_output, workspace_relative_path
+from fem_core.load_formats import number_or_none, read_load_table
+from fem_core.pathing import (
+    resolve_workspace_file,
+    resolve_workspace_output,
+    workspace_relative_path,
+)
 
 UNIT_ALIASES = {
     "m/s²": "m/s2",
@@ -254,7 +259,7 @@ def _extract_times(
         if step <= 0:
             raise FemCoreError("INVALID_TIME_STEP", "timeStepS must be positive")
         times = [index * step for index in range(len(rows))]
-    if any(current <= previous for previous, current in zip(times, times[1:])):
+    if any(current <= previous for previous, current in pairwise(times)):
         raise FemCoreError("TIME_NOT_STRICTLY_INCREASING", "Time values must be strictly increasing")
     return times
 
