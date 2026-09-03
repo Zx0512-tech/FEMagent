@@ -17,6 +17,13 @@ export {
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 export {
+  type FemAnyModelInspection,
+  type FemModelBundleDependency,
+  type FemModelBundleFile,
+  type FemModelBundleManifest,
+  type FemOpenSeesPythonModelInspection,
+} from "./modelTypes.js";
+export {
   FemBridgeError,
   FemCoreError,
   runFemCoreRequest,
