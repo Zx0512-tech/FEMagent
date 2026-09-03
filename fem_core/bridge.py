@@ -56,7 +56,9 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             message=exc.message,
             details=exc.details,
         )
-    except Exception:
+    # This is the process/protocol boundary: unexpected faults must not leak tracebacks
+    # or turn into ad-hoc stderr contracts. Convert them to one stable fail-closed envelope.
+    except Exception:  # noqa: BLE001
         return error_envelope(
             request_id=request_id,
             command=command,
