@@ -13,7 +13,7 @@ def _sha256_file(path: Path) -> str:
 
 def bundle_fingerprint(files: list[dict[str, Any]]) -> str:
     canonical = "".join(
-        f"{str(item['path'])}\0{str(item['sha256'])}\n"
+        f"{item['path']!s}\0{item['sha256']!s}\n"
         for item in sorted(files, key=lambda item: str(item["path"]))
     )
     return sha256(canonical.encode("utf-8")).hexdigest()
