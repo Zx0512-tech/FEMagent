@@ -8,12 +8,11 @@ import {
   type FemBridgeEnvelope,
   type FemHealth,
   type FemLoadInspection,
-  type FemSolverPreflight,
-  type FemSolverRun,
   type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
+import type { FemSolverPreflight, FemSolverRun } from "./solverTypes.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
