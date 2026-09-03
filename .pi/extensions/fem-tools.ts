@@ -21,12 +21,14 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_model_inspect",
     label: "Inspect FEM Model",
-    description: "Deterministically inspect an unfamiliar FEM model file inside the active workspace. PR2 supports ANSYS APDL/CDB-style text only and does not execute a solver.",
-    promptSnippet: "Inspect FEM model files before making claims about their structure",
+    description: "Deterministically inspect an ANSYS APDL/CDB-style model inside the active workspace and return validation evidence plus a normalized FEMModelManifest. The tool never executes a solver.",
+    promptSnippet: "Inspect unfamiliar FEM models and reason from their normalized manifest",
     promptGuidelines: [
-      "Use fem_model_inspect before claiming facts about an unfamiliar FEM model.",
-      "Treat explicit command counts as static text evidence, not total model node or element counts.",
-      "Do not infer bridge components, coordinate semantics, or solver validity unless the inspection result proves them.",
+      "Use fem_model_inspect before making claims about an unfamiliar FEM model.",
+      "Treat manifest values as static inspection evidence; null topology counts mean the final model must be enumerated by a later solver-inspection tool.",
+      "If executionEligibility is REJECTED, never execute the model. If it is INCOMPLETE, explain the missing structural signals instead of pretending the model is runnable.",
+      "Component names are hints only and do not prove engineering roles such as girder, tower, bearing, or damper location.",
+      "Do not hard-code X/Y/Z as longitudinal/transverse/vertical unless the project or user establishes that convention.",
     ],
     parameters: Type.Object({ path: Type.String({ description: "Workspace-relative FEM model file path" }) }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -38,7 +40,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_load_inspect",
     label: "Inspect FEM Load",
-    description: "Deterministically inspect a tabular engineering load file inside the active workspace. PR2 supports CSV/TXT/DAT and does not assign engineering meaning or units automatically.",
+    description: "Deterministically inspect a tabular engineering load file inside the active workspace. Current support is CSV/TXT/DAT and the tool does not assign engineering meaning or units automatically.",
     promptSnippet: "Inspect engineering load data before deciding mappings or units",
     promptGuidelines: [
       "Use fem_load_inspect before making claims about unfamiliar load data.",
