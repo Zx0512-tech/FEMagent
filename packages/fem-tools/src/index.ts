@@ -11,8 +11,6 @@ export {
   type FemLoadManifest,
   type FemLoadMappingSuggestion,
   type FemModelInspection,
-  type FemSolverPreflight,
-  type FemSolverRun,
   type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
@@ -23,6 +21,7 @@ export {
   type FemModelBundleManifest,
   type FemOpenSeesPythonModelInspection,
 } from "./modelTypes.js";
+export { type FemSolverPreflight, type FemSolverRun } from "./solverTypes.js";
 export {
   FemBridgeError,
   FemCoreError,
