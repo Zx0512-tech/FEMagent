@@ -3,31 +3,26 @@
 FEMagent keeps solver execution behind a narrow deterministic `SolverAdapter` interface:
 
 ```text
-status() -> runtime availability
-preflight() -> model/load compatibility without requested solve
-run() -> real solver execution and structured run manifest
+status() -> runtime availability and declared capabilities
+preflight(model_path, load_path?) -> compatibility/safety checks without requested solve
+run(model_path, load_path?) -> real solver execution and structured run manifest
 ```
+
+`load_path` is optional at the abstract interface because some solver-native model bundles own their load and analysis definition. Concrete adapters remain responsible for enforcing a load when their model contract requires one.
 
 The Agent chooses when to use the tools. The adapter and solver determine engineering facts and numerical results.
 
-## PR5 OpenSees V1
+## OpenSeesPy adapter
 
-PR5 introduces the first real solver backend: OpenSeesPy.
+OpenSeesPy is the first real solver backend. The runtime dependency is optional (`pip install -e ".[opensees]"`) so future solver backends can remain modular. CI installs the OpenSees extra and runs real adapter smoke/analysis tests.
 
-The runtime dependency is optional (`pip install -e ".[opensees]"`) so future solver backends can remain modular. CI installs the OpenSees extra and executes a real transient Golden Path. OpenSeesPy 3.8.0.0 is pinned for this first integration baseline.
+OpenSees execution is isolated from the JSON bridge in dedicated Python worker processes. Native solver output therefore cannot corrupt the `femagent.bridge/v1` stdout contract, and native failures can be converted into stable parent-process errors plus solver logs.
 
-### Execution isolation
+The adapter currently supports two model paths through the same generic `fem_solver_preflight` / `fem_solver_run` tool contract.
 
-OpenSees executes in a dedicated Python worker process instead of importing the native solver into the JSON bridge process. This provides two important boundaries:
+## Controlled JSON `ELASTIC_SDOF`
 
-- native solver output such as OpenSees process messages cannot corrupt `femagent.bridge/v1` stdout JSON,
-- native solver faults are converted into a stable parent-process error and solver log.
-
-The parent bridge process writes the final structured envelope only after the worker result has been validated.
-
-### Controlled model boundary
-
-PR5 intentionally does not execute arbitrary user OpenSees Python files. The only accepted model contract is:
+The original controlled model contract remains supported:
 
 ```text
 kind: FEMAGENT_OPENSEES_MODEL_SPEC
@@ -36,40 +31,62 @@ modelType: ELASTIC_SDOF
 units: m / N / kg / s
 ```
 
-This is a Solver Runtime Golden Path, not the final OpenSees model-import story.
+This path **requires** an external canonical `FEMAGENT_LOAD_CSV_V1` load. Omitting `loadPath` is rejected by the concrete OpenSees adapter even though the abstract SolverAdapter parameter is optional.
 
-### Canonical load boundary
+The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and returns deterministic response artifacts including peak displacement evidence.
 
-PR5 accepts one `FEMAGENT_LOAD_CSV_V1` channel with:
+## OpenSees Python Model Bundle
 
-- load kind `EARTHQUAKE`,
-- application type `UNIFORM_EXCITATION`,
-- quantity `ACCELERATION`,
-- unit `m/s2`,
-- X/UX/U1/1 component for the one-degree-of-freedom model,
-- a strictly increasing uniform time axis.
+A `.py` entrypoint is treated as a Model Bundle rather than a trusted standalone script.
 
-The actual transient analysis uses an OpenSees elastic zeroLength SDOF, mass-proportional damping corresponding to the requested damping ratio, `UniformExcitation`, Newton iteration, and Newmark average acceleration `(gamma=0.5, beta=0.25)`.
+Before a real run:
 
-### Run outputs
+```text
+fem_model_inspect
+    -> Python AST safety/model inspection
+    -> workspace-local dependency discovery
+    -> Model Bundle fingerprint
+    -> fem_solver_preflight
+    -> isolated build-only inspection
+    -> READY/BLOCKED
+```
 
-Every successful run writes under `.femagent/runs/<runId>/`:
+### Dependency boundary
 
-- `run_manifest.json`
-- `response.csv`
-- `result_summary.json`
-- `solver.log`
+Resolved local modules and referenced data files must remain inside the active workspace. A dependency that escapes the workspace blocks the bundle. Bundle discovery does not install packages or fetch remote code.
 
-The run manifest records the solver package/engine version, model SHA256, load SHA256, case fingerprint, analysis configuration, output SHA256 values, and the actual peak displacement summary returned by the worker.
+The deterministic bundle identity records each included file SHA256 and a `bundleFingerprint`. Later provenance should use this fingerprint instead of treating the entrypoint hash as the complete model identity.
 
-Artifact/Evidence persistence remains a later PR. These files are the deterministic precursors.
+### Build-only inspection
+
+Preflight executes model construction in an isolated OpenSees worker while intercepting `ops.analyze()`. This allows the adapter to observe the realized domain (for example node/element tags and coordinates) without advancing the requested analysis.
+
+Static AST evidence and build-only solver-domain evidence remain separate; neither is a numerical response result.
+
+### Script-managed loads
+
+For a Python Model Bundle, `loadPath` may be omitted when the model script owns its load and analysis definition. Preflight reports this as `MODEL_SCRIPT_MANAGED`.
+
+If an external `loadPath` is supplied to the current Python-bundle path, it is recorded for provenance but is **not injected** into the script; the adapter reports `injected: false`. The Agent must not claim that a provided file affected the solve unless the run contract says it was actually applied.
+
+### Staged execution
+
+Real Python-bundle execution never runs directly from the user's source tree. After successful preflight and execution permission, the adapter copies the resolved bundle into:
+
+```text
+.femagent/runs/<runId>/model_bundle/
+```
+
+The isolated worker executes the staged entrypoint. This preserves relative local-module/data references while giving the run a concrete, hashable input set.
+
+The run manifest records the entrypoint SHA256, bundle fingerprint, per-file bundle hashes, solver package/engine version, case fingerprint, analysis/summary information, solver log, and staged bundle location. Artifact/Evidence registration can later build on these deterministic run precursors.
 
 ## Permission boundary
 
-`fem_solver_status` and `fem_solver_preflight` are read/inspection operations.
+`fem_solver_status` and `fem_solver_preflight` are inspection operations. OpenSees Python preflight can execute model **construction** in its isolated build-only worker, but `ops.analyze()` is intercepted.
 
-`fem_solver_run` is an EXECUTION action. A project Pi extension intercepts the tool call and requires an interactive/RPC user confirmation. In print/JSON modes where a confirmation UI is unavailable, the call is blocked rather than silently executed.
+`fem_solver_run` is an EXECUTION action. The project Pi extension requires user approval before the real solver starts; modes without a usable confirmation path fail closed rather than silently executing.
 
-## Next expansion
+## Adapter design rule
 
-Future adapters must implement the same status/preflight/run boundary. ANSYS, richer OpenSees model types, cancellation/job lifecycle, result queries, and Artifact/Evidence registration should extend this interface rather than creating task-specific solver tools.
+Future backends should extend the same status/preflight/run boundary instead of creating task-specific solver tools. Solver-specific requirements belong inside adapters; the agent-facing contract stays small and composable.
