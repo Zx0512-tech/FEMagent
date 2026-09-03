@@ -101,3 +101,15 @@ def test_model_path_cannot_escape_workspace(tmp_path: Path) -> None:
     with pytest.raises(FemCoreError) as exc:
         inspect_model(workspace, "../outside.apdl")
     assert exc.value.code == "PATH_OUTSIDE_WORKSPACE"
+
+
+def test_model_inspection_dispatches_opensees_python_bundle() -> None:
+    workspace = Path.cwd()
+    report = inspect_model(workspace, "tests/fixtures/opensees_bundle/main.py")
+
+    assert report["kind"] == "opensees_python_model_inspection"
+    assert report["classification"] == "MODEL_CONFIRMED"
+    assert report["format"] == "OPENSEES_PYTHON"
+    assert report["bundle"]["integrity"] == "VALID"
+    paths = {item["path"] for item in report["bundle"]["files"]}
+    assert "tests/fixtures/opensees_bundle/materials.py" in paths

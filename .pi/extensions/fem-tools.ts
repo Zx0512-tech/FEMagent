@@ -11,7 +11,7 @@ import {
 import { Type } from "typebox";
 
 const solverName = Type.Union([Type.Literal("opensees")], {
-  description: "Concrete FEM solver adapter. PR5 supports opensees only.",
+  description: "Concrete FEM solver adapter. Current support is OpenSeesPy.",
 });
 
 export default function femToolsExtension(pi: ExtensionAPI) {
@@ -33,16 +33,17 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_model_inspect",
     label: "Inspect FEM Model",
-    description: "Deterministically inspect an ANSYS APDL/CDB-style model inside the active workspace and return validation evidence plus a normalized FEMModelManifest. The tool never executes a solver.",
-    promptSnippet: "Inspect unfamiliar FEM models and reason from their normalized manifest",
+    description: "Deterministically inspect an ANSYS APDL/CDB-style model or an OpenSees Python model bundle inside the active workspace. OpenSees Python inspection uses AST only and never executes user code.",
+    promptSnippet: "Inspect unfamiliar FEM model entrypoints and reason from normalized static/bundle evidence",
     promptGuidelines: [
       "Use fem_model_inspect before making claims about an unfamiliar FEM model.",
-      "Treat manifest values as static inspection evidence; null topology counts mean the final model must be enumerated by a later solver-inspection tool.",
+      "A model may span multiple files. For OpenSees Python, treat bundleFingerprint plus bundle files as model identity rather than the entrypoint SHA alone.",
+      "Static Python AST facts are not realized solver topology; dynamic models require solver preflight/build inspection before execution.",
       "If executionEligibility is REJECTED, never execute the model. If it is INCOMPLETE, explain the missing structural signals instead of pretending the model is runnable.",
-      "Component names are hints only and do not prove engineering roles such as girder, tower, bearing, or damper location.",
+      "Component, variable and module names are hints only and do not prove engineering roles such as girder, tower, bearing, or damper location.",
       "Do not hard-code X/Y/Z as longitudinal/transverse/vertical unless the project or user establishes that convention.",
     ],
-    parameters: Type.Object({ path: Type.String({ description: "Workspace-relative FEM model file path" }) }),
+    parameters: Type.Object({ path: Type.String({ description: "Workspace-relative FEM model entrypoint path" }) }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemModelInspect(ctx.cwd, params.path, signal);
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
@@ -106,16 +107,18 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_solver_preflight",
     label: "Preflight FEM Solver",
-    description: "Validate solver availability plus deterministic model/load compatibility without performing the requested finite-element solve.",
-    promptSnippet: "Preflight the concrete FEM solver with explicit model and canonical load artifacts",
+    description: "Validate solver availability plus model/bundle compatibility without performing the requested finite-element solve. OpenSees Python entrypoints are build-inspected in an isolated worker with analyze intercepted.",
+    promptSnippet: "Preflight the concrete FEM solver after static model inspection and before execution",
     promptGuidelines: [
       "Call fem_solver_preflight before fem_solver_run and resolve BLOCKED checks before requesting execution.",
-      "PR5 OpenSees preflight accepts only the controlled ELASTIC_SDOF model spec and a single canonical EARTHQUAKE UNIFORM_EXCITATION acceleration channel.",
+      "For OpenSees Python model bundles, loadPath may be omitted when the model script owns its load and analysis definition.",
+      "For the controlled ELASTIC_SDOF JSON model, a canonical FEMAGENT_LOAD_CSV_V1 load remains required.",
+      "Build inspection executes model construction in an isolated worker but must not advance ops.analyze().",
     ],
     parameters: Type.Object({
       solver: solverName,
-      modelPath: Type.String({ description: "Workspace-relative solver model-spec path" }),
-      loadPath: Type.String({ description: "Workspace-relative FEMAGENT_LOAD_CSV_V1 path" }),
+      modelPath: Type.String({ description: "Workspace-relative solver model entrypoint path" }),
+      loadPath: Type.Optional(Type.String({ description: "Optional canonical external load path; required for controlled JSON models" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemSolverPreflight(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);
@@ -131,12 +134,13 @@ export default function femToolsExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Never call fem_solver_run before fem_solver_preflight reports READY.",
       "fem_solver_run is an EXECUTION action. The permission gate must obtain user approval before the solver starts.",
-      "Do not describe PR5's controlled ELASTIC_SDOF Golden Path as support for arbitrary uploaded OpenSees Python models.",
+      "OpenSees Python entrypoints may own their load/analysis definition; omitted loadPath is valid only when preflight reports MODEL_SCRIPT_MANAGED.",
+      "Do not execute OpenSees Python that static model inspection classified as unsafe or whose bundle escapes the workspace.",
     ],
     parameters: Type.Object({
       solver: solverName,
-      modelPath: Type.String({ description: "Workspace-relative solver model-spec path" }),
-      loadPath: Type.String({ description: "Workspace-relative FEMAGENT_LOAD_CSV_V1 path" }),
+      modelPath: Type.String({ description: "Workspace-relative solver model entrypoint path" }),
+      loadPath: Type.Optional(Type.String({ description: "Optional canonical external load path; required for controlled JSON models" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemSolverRun(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);

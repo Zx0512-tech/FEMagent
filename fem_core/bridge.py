@@ -19,6 +19,19 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
     return value
 
 
+def _optional_text(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise FemCoreError(
+            "INVALID_ARGUMENT",
+            f"'{key}' must be a non-empty string when provided",
+            details={"field": key},
+        )
+    return value
+
+
 def _required_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict):
@@ -71,14 +84,14 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = adapter.preflight(
                 workspace,
                 model_path=_required_text(payload, "modelPath"),
-                load_path=_required_text(payload, "loadPath"),
+                load_path=_optional_text(payload, "loadPath"),
             )
         elif command == "solver.run":
             adapter = get_solver_adapter(_required_text(payload, "solver"))
             result = adapter.run(
                 workspace,
                 model_path=_required_text(payload, "modelPath"),
-                load_path=_required_text(payload, "loadPath"),
+                load_path=_optional_text(payload, "loadPath"),
             )
         else:
             raise FemCoreError("UNKNOWN_COMMAND", "Unknown FEM engineering command", details={"command": command})

@@ -32,11 +32,22 @@ const earthquakeMapping = {
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
   assert.equal(report.kind, "model_inspection");
+  if (report.kind !== "model_inspection") throw new Error("expected ANSYS model inspection");
   assert.equal(report.schemaVersion, "1.1");
   assert.equal(report.summary.explicitNodeCommandCount, 2);
   assert.equal(report.validation.executionEligibility, "STATICALLY_ELIGIBLE");
   assert.deepEqual(report.manifest.topology.elementTypes, [{ id: "1", name: "BEAM188" }]);
   assert.equal(report.manifest.topology.nodeCount.value, 2);
+});
+
+test("OpenSees Python bundle inspection crosses the strict JSON bridge", async () => {
+  const report = await runFemModelInspect(cwd, "tests/fixtures/opensees_bundle/main.py");
+  assert.equal(report.kind, "opensees_python_model_inspection");
+  if (report.kind !== "opensees_python_model_inspection") throw new Error("expected OpenSees Python inspection");
+  assert.equal(report.classification, "MODEL_CONFIRMED");
+  assert.equal(report.bundle.integrity, "VALID");
+  assert.ok(report.bundle.files.some((item) => item.path.endsWith("opensees_bundle/materials.py")));
+  assert.equal(report.bundle.bundleFingerprint.length, 64);
 });
 
 test("load inspection crosses the versioned TypeScript/Python bridge", async () => {
@@ -76,7 +87,25 @@ test("OpenSees status, preflight and real solve cross the strict JSON bridge", a
   );
   assert.equal(run.status, "COMPLETED");
   assert.equal(run.solver.name, "OPENSEESPY");
-  assert.ok(run.summary.absolutePeakDisplacementM > 0);
+  const peak = run.summary.absolutePeakDisplacementM;
+  assert.equal(typeof peak, "number");
+  if (typeof peak !== "number") throw new Error("expected numeric peak displacement");
+  assert.ok(peak > 0);
+});
+
+test("OpenSees Python bundle preflight and run use the existing generic solver tool contract", async () => {
+  const modelPath = "tests/fixtures/opensees_bundle/main.py";
+  const preflight = await runFemSolverPreflight(cwd, "opensees", modelPath);
+  assert.equal(preflight.status, "READY");
+  assert.equal(preflight.model.format, "OPENSEES_PYTHON");
+  assert.equal(preflight.load.mode, "MODEL_SCRIPT_MANAGED");
+
+  const run = await runFemSolverRun(cwd, "opensees", modelPath);
+  assert.equal(run.status, "COMPLETED");
+  assert.equal(run.model.format, "OPENSEES_PYTHON");
+  assert.equal(run.analysis.type, "MODEL_SCRIPT");
+  assert.equal(run.summary.nodeCount, 2);
+  assert.equal(run.summary.elementCount, 1);
 });
 
 test("Python domain errors preserve stable error codes", async () => {
