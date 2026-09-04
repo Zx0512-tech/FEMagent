@@ -80,3 +80,22 @@ def test_solver_options_must_be_object(tmp_path: Path) -> None:
 
     assert response["ok"] is False
     assert response["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_opensees_solver_options_fail_closed_before_adapter_execution(tmp_path: Path) -> None:
+    response = handle_request(
+        {
+            "protocol": BRIDGE_PROTOCOL,
+            "requestId": "req-opensees-options",
+            "command": "solver.preflight",
+            "payload": {
+                "solver": "opensees",
+                "modelPath": "does-not-need-to-exist.json",
+                "solverOptions": {"modelUnits": {"length": "mm", "time": "s"}},
+            },
+        },
+        workspace=tmp_path,
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "UNSUPPORTED_SOLVER_OPTIONS"
