@@ -24,6 +24,21 @@ _ARTIFACT_HASH_PAIRS = (
     ("runtimeOutput", "runtimeOutputSha256"),
     ("binaryResult", "binaryResultSha256"),
 )
+_COMPONENT_ALIASES = {
+    "X": "X",
+    "UX": "X",
+    "U1": "X",
+    "1": "X",
+    "Y": "Y",
+    "UY": "Y",
+    "U2": "Y",
+    "2": "Y",
+    "Z": "Z",
+    "UZ": "Z",
+    "U3": "Z",
+    "3": "Z",
+}
+_MAX_RESULT_SERIES_SAMPLES = 5000
 
 
 def _sha256_file(path: Path) -> str:
@@ -305,3 +320,141 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
         "observations": details["observations"],
         "warnings": details["warnings"],
     }
+
+
+def _normalized_component(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query component must be a non-empty string")
+    normalized = _COMPONENT_ALIASES.get(value.strip().upper())
+    if normalized is None:
+        raise FemCoreError(
+            "INVALID_RESULT_QUERY",
+            "Result query component is not a supported Cartesian alias",
+            details={"component": value},
+        )
+    return normalized
+
+
+def _validated_query(query: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(query, dict):
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query must be a JSON object")
+    quantity = query.get("quantity")
+    operation = query.get("operation")
+    target = query.get("target")
+    if not isinstance(quantity, str) or not quantity.strip():
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query quantity must be a non-empty string")
+    if not isinstance(operation, str) or operation.strip().upper() not in {"SUMMARY", "SERIES"}:
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query operation must be SUMMARY or SERIES")
+    if not isinstance(target, dict) or str(target.get("type") or "").upper() != "NODE":
+        raise FemCoreError("INVALID_RESULT_QUERY", "PR9 result queries require a NODE target")
+    target_id = target.get("id")
+    if not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query node id must be a positive integer")
+    offset = query.get("offset", 0)
+    limit = query.get("limit", 500)
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query offset must be a non-negative integer")
+    if (
+        not isinstance(limit, int)
+        or isinstance(limit, bool)
+        or limit <= 0
+        or limit > _MAX_RESULT_SERIES_SAMPLES
+    ):
+        raise FemCoreError(
+            "INVALID_RESULT_QUERY",
+            f"Result query limit must be between 1 and {_MAX_RESULT_SERIES_SAMPLES}",
+        )
+    return {
+        "quantity": quantity.strip().upper(),
+        "operation": operation.strip().upper(),
+        "target": {"type": "NODE", "id": target_id},
+        "component": _normalized_component(query.get("component")),
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+def _matching_capability(result_manifest: dict[str, Any], query: dict[str, Any]) -> dict[str, Any]:
+    for capability in result_manifest["queryCapabilities"]:
+        if (
+            capability.get("quantity") == query["quantity"]
+            and capability.get("component") == query["component"]
+            and capability.get("target") == query["target"]
+        ):
+            return capability
+    raise FemCoreError(
+        "RESULT_SERIES_UNAVAILABLE",
+        "The recorded run does not contain the requested result series",
+        details={
+            "quantity": query["quantity"],
+            "component": query["component"],
+            "target": query["target"],
+        },
+    )
+
+
+def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[str, Any]:
+    normalized = _validated_query(query)
+    result_manifest = inspect_result(workspace, run_ref)
+    capability = _matching_capability(result_manifest, normalized)
+    _, run_manifest = _load_run_manifest(workspace, run_ref)
+    if str(run_manifest["solver"]["name"]).upper() != "OPENSEESPY":
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "The requested solver result reader does not expose this series yet",
+        )
+    response_path = run_manifest["outputs"].get("responseCsv")
+    if not isinstance(response_path, str):
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "This OpenSees run did not record a standard response series",
+        )
+    response_file = resolve_workspace_file(workspace, response_path)
+    series = _read_open_sees_response(response_file)
+    source_column = str(capability["sourceColumn"])
+    values = series[source_column]
+    abscissa = series["time_s"]
+
+    response: dict[str, Any] = {
+        "schemaVersion": "1.0",
+        "kind": "result_query",
+        "runId": result_manifest["runId"],
+        "caseFingerprint": result_manifest["caseFingerprint"],
+        "solver": result_manifest["solver"],
+        "quantity": normalized["quantity"],
+        "target": normalized["target"],
+        "component": normalized["component"],
+        "operation": normalized["operation"],
+        "unit": capability.get("unit"),
+        "referenceFrame": capability.get("referenceFrame"),
+        "abscissa": {"semantic": "TIME", "unit": "s"},
+        "source": {
+            "artifact": workspace_relative_path(workspace, response_file),
+            "column": source_column,
+        },
+    }
+    if normalized["operation"] == "SUMMARY":
+        peak_index = max(range(len(values)), key=lambda index: abs(values[index]))
+        response["summary"] = {
+            "sampleCount": len(values),
+            "min": min(values),
+            "max": max(values),
+            "absolutePeak": abs(values[peak_index]),
+            "abscissaAtAbsolutePeak": abscissa[peak_index],
+        }
+        return response
+
+    offset = normalized["offset"]
+    limit = normalized["limit"]
+    end = min(offset + limit, len(values))
+    response["series"] = [
+        {"abscissa": abscissa[index], "value": values[index]}
+        for index in range(offset, end)
+    ]
+    response["paging"] = {
+        "offset": offset,
+        "limit": limit,
+        "returned": max(0, end - offset),
+        "total": len(values),
+    }
+    return response
