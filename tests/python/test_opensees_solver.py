@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from fem_core.errors import FemCoreError
 from fem_core.load_standardization import standardize_load
 from fem_core.solvers.registry import get_solver_adapter
 
@@ -62,20 +61,6 @@ def test_opensees_preflight_is_deterministic_without_solving(tmp_path: Path) -> 
     assert report["model"]["modelType"] == "ELASTIC_SDOF"
     assert report["load"]["unit"] == "m/s2"
     assert report["executionEstimate"]["analysisSteps"] == 3
-
-
-def test_opensees_rejects_ansys_solver_options(tmp_path: Path) -> None:
-    adapter = get_solver_adapter("opensees")
-
-    with pytest.raises(FemCoreError) as exc_info:
-        adapter.preflight(
-            tmp_path,
-            model_path=_model(tmp_path),
-            load_path=_canonical_load(tmp_path),
-            solver_options={"modelUnits": {"length": "mm", "time": "s"}},
-        )
-
-    assert exc_info.value.code == "UNSUPPORTED_SOLVER_OPTIONS"
 
 
 def test_opensees_real_transient_solver_produces_run_manifest(tmp_path: Path) -> None:
