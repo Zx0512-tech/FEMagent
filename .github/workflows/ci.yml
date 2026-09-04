@@ -36,8 +36,8 @@ jobs:
       - name: Install TypeScript dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Install Python core with OpenSees
-        run: python -m pip install -e ".[dev,opensees]"
+      - name: Install Python core with solver/result extras
+        run: python -m pip install -e ".[dev,opensees,ansys-results]"
 
       - name: Typecheck
         run: pnpm typecheck
@@ -53,6 +53,9 @@ jobs:
 
       - name: OpenSees adapter availability smoke
         run: python -c "from fem_core.solvers import get_solver_adapter; s=get_solver_adapter('opensees').status(); assert s['available'], s"
+
+      - name: ANSYS result reader import smoke
+        run: python -c "from ansys.mapdl import reader; assert callable(reader.read_binary)"
 
       - name: Health smoke
         run: pnpm fem:health
