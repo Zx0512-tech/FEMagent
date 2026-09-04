@@ -14,15 +14,15 @@ The Agent chooses when to use the tools. The adapter and solver determine engine
 
 ## OpenSeesPy adapter
 
-OpenSeesPy is the first real solver backend. The runtime dependency is optional (`pip install -e ".[opensees]"`) so future solver backends can remain modular. CI installs the OpenSees extra and runs real adapter smoke/analysis tests.
+OpenSeesPy is a real solver backend. The runtime dependency is optional (`pip install -e ".[opensees]"`) so solver backends remain modular. CI installs the OpenSees extra and runs real adapter smoke/analysis tests.
 
 OpenSees execution is isolated from the JSON bridge in dedicated Python worker processes. Native solver output therefore cannot corrupt the `femagent.bridge/v1` stdout contract, and native failures can be converted into stable parent-process errors plus solver logs.
 
-The adapter currently supports two model paths through the same generic `fem_solver_preflight` / `fem_solver_run` tool contract.
+The adapter supports two model paths through the same generic `fem_solver_preflight` / `fem_solver_run` tool contract.
 
-## Controlled JSON `ELASTIC_SDOF`
+### Controlled JSON `ELASTIC_SDOF`
 
-The original controlled model contract remains supported:
+The controlled model contract remains supported:
 
 ```text
 kind: FEMAGENT_OPENSEES_MODEL_SPEC
@@ -35,7 +35,7 @@ This path **requires** an external canonical `FEMAGENT_LOAD_CSV_V1` load. Omitti
 
 The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and returns deterministic response artifacts including peak displacement evidence.
 
-## OpenSees Python Model Bundle
+### OpenSees Python Model Bundle
 
 A `.py` entrypoint is treated as a Model Bundle rather than a trusted standalone script.
 
@@ -51,41 +51,100 @@ fem_model_inspect
     -> READY/BLOCKED
 ```
 
-### Dependency boundary
+Resolved local modules and referenced data files must remain inside the active workspace. Bundle discovery does not install packages or fetch remote code.
 
-Resolved local modules and referenced data files must remain inside the active workspace. A dependency that escapes the workspace blocks the bundle. Bundle discovery does not install packages or fetch remote code.
+Preflight executes model construction in an isolated OpenSees worker while intercepting `ops.analyze()`. This allows realized solver-domain evidence to be observed without advancing the requested analysis.
 
-The deterministic bundle identity records each included file SHA256 and a `bundleFingerprint`. Later provenance should use this fingerprint instead of treating the entrypoint hash as the complete model identity.
+For a Python Model Bundle, `loadPath` may be omitted when the model script owns its load and analysis definition. If an external `loadPath` is supplied to the current Python-bundle path, it is recorded for provenance but is **not injected** into the script.
 
-### Build-only inspection
-
-Preflight executes model construction in an isolated OpenSees worker while intercepting `ops.analyze()`. This allows the adapter to observe the realized domain (for example node/element tags and coordinates) without advancing the requested analysis.
-
-Static AST evidence and build-only solver-domain evidence remain separate; neither is a numerical response result.
-
-### Script-managed loads
-
-For a Python Model Bundle, `loadPath` may be omitted when the model script owns its load and analysis definition. Preflight reports this as `MODEL_SCRIPT_MANAGED`.
-
-If an external `loadPath` is supplied to the current Python-bundle path, it is recorded for provenance but is **not injected** into the script; the adapter reports `injected: false`. The Agent must not claim that a provided file affected the solve unless the run contract says it was actually applied.
-
-### Staged execution
-
-Real Python-bundle execution never runs directly from the user's source tree. After successful preflight and execution permission, the adapter copies the resolved bundle into:
+Real execution stages the resolved bundle under:
 
 ```text
 .femagent/runs/<runId>/model_bundle/
 ```
 
-The isolated worker executes the staged entrypoint. This preserves relative local-module/data references while giving the run a concrete, hashable input set.
+and executes the staged entrypoint rather than the user's original source tree.
 
-The run manifest records the entrypoint SHA256, bundle fingerprint, per-file bundle hashes, solver package/engine version, case fingerprint, analysis/summary information, solver log, and staged bundle location. Artifact/Evidence registration can later build on these deterministic run precursors.
+## ANSYS MAPDL adapter
+
+PR8 adds ANSYS MAPDL as FEMagent's second real SolverAdapter while preserving the same generic tool surface.
+
+### Runtime discovery
+
+ANSYS runtime configuration is explicit:
+
+```text
+FEM_ANSYS_EXECUTABLE=/path/to/ansys/mapdl/executable
+```
+
+The adapter does not scan the machine or hard-code installation paths. `fem_solver_status` returns structured availability/configuration evidence and fails closed when the configured path is missing or invalid.
+
+### ANSYS Model Bundle
+
+Supported model/script member suffixes are:
+
+```text
+.cdb .inp .apdl .mac .dat .txt
+```
+
+TXT/DAT entrypoints require deterministic APDL/CDB content signals before they are treated as models. `/INPUT` and `*USE` references are recursively resolved inside the workspace and included in the bundle fingerprint.
+
+Missing dependencies, workspace escapes, and PR8-unsupported absolute includes block preflight.
+
+### Build-only preflight
+
+`fem_solver_preflight` with `solver: ansys` performs:
+
+```text
+static APDL safety
++ Model Bundle integrity
++ runtime availability
++ staged sanitized build-only MAPDL run
+```
+
+The build-only staged copy stops before `/SOLU`, `SOLVE`, or postprocessing. The user's source files are never rewritten.
+
+A successful build-only inspection is required for preflight `READY`.
+
+### Script-managed loads
+
+PR8 does not yet inject arbitrary canonical load files into APDL. The ANSYS Model Bundle owns its load and analysis commands.
+
+When `loadPath` is provided, its path and SHA256 are recorded for provenance and the preflight/run contract reports `injected: false`. The Agent must not claim that such a file affected the solve.
+
+### Staged real execution
+
+After preflight `READY` and execution permission, `fem_solver_run` copies the complete resolved ANSYS bundle into:
+
+```text
+.femagent/runs/<runId>/model_bundle/
+```
+
+MAPDL runs with the staged bundle working directory as its CWD so relative `/INPUT` behavior remains inside the staged provenance boundary.
+
+The run manifest records:
+
+- `runId`,
+- `caseFingerprint`,
+- entrypoint SHA256,
+- `bundleFingerprint`,
+- per-file bundle hashes,
+- configured runtime identity,
+- staged bundle root,
+- MAPDL output,
+- solver log and hashes.
+
+### Result boundary
+
+PR8 does **not** yet parse ANSYS RST/output into engineering result quantities. `COMPLETED` means the configured MAPDL process returned successfully and execution artifacts were captured; it is not proof of displacement/stress/reaction/convergence values.
+
+Those claims belong to the later Result Intelligence layer.
 
 ## Permission boundary
 
-`fem_solver_status` and `fem_solver_preflight` are inspection operations. OpenSees Python preflight can execute model **construction** in its isolated build-only worker, but `ops.analyze()` is intercepted.
+`fem_solver_status` and `fem_solver_preflight` are inspection operations. Solver-specific preflight may perform controlled build-only model construction, but it must not intentionally advance the requested analysis.
 
-`fem_solver_run` is an EXECUTION action. The project Pi extension requires user approval before the real solver starts; modes without a usable confirmation path fail closed rather than silently executing.
+`fem_solver_run` is an EXECUTION action. The Pi extension requires user approval before the real solver starts; modes without a usable confirmation path fail closed rather than silently executing.
 
 ## Adapter design rule
 
