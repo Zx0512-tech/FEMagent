@@ -195,6 +195,19 @@ def test_inspect_result_rejects_path_escape_and_malformed_manifest(tmp_path: Pat
     assert malformed.value.code == "INVALID_RUN_MANIFEST"
 
 
+def test_inspect_result_rejects_symlinked_manifest_escape(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-run-manifest.json"
+    outside.write_text('{"kind":"outside"}', encoding="utf-8")
+    run_dir = tmp_path / "run_symlink_escape"
+    run_dir.mkdir()
+    (run_dir / "run_manifest.json").symlink_to(outside)
+
+    with pytest.raises(FemCoreError) as escaped:
+        inspect_result(tmp_path, run_dir.name)
+
+    assert escaped.value.code == "PATH_OUTSIDE_WORKSPACE"
+
+
 def test_query_open_sees_displacement_summary_returns_extrema_and_peak_time(tmp_path: Path) -> None:
     run_dir = _write_open_sees_run(tmp_path)
 
