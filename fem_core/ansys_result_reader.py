@@ -56,6 +56,8 @@ def _open_result(path: Path):
         )
     try:
         return _reader_module().read_binary(str(resolved), parse_vtk=False)
+    except FemCoreError:
+        raise
     except Exception as exc:
         raise FemCoreError(
             "INVALID_ANSYS_BINARY_RESULT",
