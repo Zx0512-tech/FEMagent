@@ -40,7 +40,7 @@ Both are SAFE read operations. They do not invoke a solver and do not modify sou
 - run summary/observations already emitted by the solver adapter;
 - warnings when numerical result channels are unavailable or units/axis semantics cannot be proven.
 
-Integrity states are `VALID`, `LIMITED`, or `INVALID`. A hash mismatch is `INVALID`. A completed run with no standardized numerical series can be `LIMITED` rather than fabricated into a result.
+Integrity states are `VALID`, `LIMITED`, or `INVALID`. A hash mismatch is invalid evidence and is rejected. A completed run with no standardized numerical series can be `LIMITED` rather than fabricated into a result.
 
 ## Query contract
 
@@ -49,13 +49,15 @@ V1 queries are nodal series queries:
 ```json
 {
   "quantity": "DISPLACEMENT | VELOCITY | ACCELERATION | REACTION_FORCE",
-  "target": {"type": "NODE", "id": 36},
+  "target": {"type": "NODE", "id": 101},
   "component": "X | Y | Z | UX | UY | UZ | ...",
   "operation": "SUMMARY | SERIES",
   "offset": 0,
   "limit": 500
 }
 ```
+
+The numeric node ID above is only an interface example; it carries no built-in engineering-role meaning.
 
 `SUMMARY` returns sample count, min, max, absolute peak, and abscissa at the absolute peak. `SERIES` returns a bounded slice. The maximum V1 series return is 5000 samples.
 
