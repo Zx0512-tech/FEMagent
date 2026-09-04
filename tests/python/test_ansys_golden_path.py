@@ -5,6 +5,10 @@ import shutil
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
+from fem_core.errors import FemCoreError
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNNER_PATH = _REPO_ROOT / "examples" / "ansys" / "golden_path" / "run_golden_path.py"
 _MODEL_PATH = _REPO_ROOT / "examples" / "ansys" / "golden_path" / "model.inp"
@@ -137,3 +141,27 @@ def test_ci_golden_path_reaches_result_intelligence_without_fake_numerical_claim
 
     assert model.read_bytes() == source_model_before
     assert xlsx.read_bytes() == source_xlsx_before
+
+
+def test_real_causality_response_change_threshold_is_explicit() -> None:
+    runner = _load_runner()
+    assert hasattr(runner, "response_changed"), "Task 3 response-change predicate must exist"
+
+    assert runner.response_changed(1.0e-4, 2.0e-4) is True
+    assert runner.response_changed(1.0e-4, 1.0e-4 + 1.0e-13) is False
+
+
+def test_real_golden_path_fails_closed_without_configured_ansys(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runner = _load_runner()
+    assert hasattr(runner, "run_real_causality_check"), "Task 3 real ANSYS harness must exist"
+    model = tmp_path / "model.inp"
+    shutil.copyfile(_MODEL_PATH, model)
+    monkeypatch.delenv("FEM_ANSYS_EXECUTABLE", raising=False)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        runner.run_real_causality_check(tmp_path, model_path="model.inp")
+
+    assert exc_info.value.code == "GOLDEN_PATH_ANSYS_UNAVAILABLE"
