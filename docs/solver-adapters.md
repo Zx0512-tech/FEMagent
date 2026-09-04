@@ -243,6 +243,34 @@ MAPDL result units are not inferred from numerical magnitude. Result Intelligenc
 
 If no binary result was recorded, the run remains inspectable but numerical result integrity is `LIMITED`. FEMagent does not parse `ansys.out` or `solver.log` into numerical response truth.
 
+### PR11 ANSYS Golden Path V1
+
+PR11 packages the existing Load Intelligence, ANSYS adapter, and Result Intelligence contracts into one reproducible acceptance path rather than adding a new solver API:
+
+```text
+earthquake XLSX
+  -> standardize_load()
+  -> FEMAGENT_LOAD_CSV_V1
+  -> ANSYS preflight with explicit modelUnits
+  -> staged canonical injection
+  -> MAPDL run
+  -> run_manifest + binary result
+  -> inspect_result()
+  -> query_result()
+```
+
+The checked-in example lives under `examples/ansys/golden_path/`. It declares a `m` / `s` model convention and fixes the real numerical response target as node 2 X displacement.
+
+Normal Linux CI uses a strict fake MAPDL **process boundary** so the production adapter still performs build-only preflight, staging, canonical injection, run-manifest creation, binary-result hashing, Result Intelligence inspection, and Result Intelligence querying. The fake process copies the valid `.rst` parser fixture shipped with `ansys-mapdl-reader`. Those fixture values are interoperability evidence only; they are not claimed as the numerical response of the PR11 model.
+
+Real numerical causality is opt-in and uses only the configured `FEM_ANSYS_EXECUTABLE`:
+
+```text
+python examples/ansys/golden_path/run_golden_path.py --workspace .
+```
+
+The real harness runs the same model twice with earthquake amplitude scales `1.0` and `2.0`. It requires both execution/case fingerprints to change and requires node-2 X-displacement absolute peak to change beyond the documented deterministic tolerance. PR11 intentionally does not require or emulate a licensed ANSYS installation in ordinary GitHub-hosted CI.
+
 ## Permission boundary
 
 `fem_solver_status` and `fem_solver_preflight` are inspection operations. Solver-specific preflight may perform controlled build-only model/input construction, but it must not intentionally advance the requested analysis.
