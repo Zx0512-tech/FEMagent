@@ -214,6 +214,50 @@ MAPDL execution + run provenance
 
 Static APDL does not always enumerate realized topology for parameterized/block-based models. Build-only inspection proves that the staged model/input can be constructed without intentionally advancing the requested solve; numerical response truth is then read from recorded solver result artifacts through Result Intelligence.
 
+## PR11 ANSYS Golden Path
+
+PR11 proves the first complete ANSYS composition across the existing intelligence/runtime boundaries:
+
+```text
+earthquake XLSX
+        |
+        v
+Load Intelligence
+        |
+        v
+FEMAGENT_LOAD_CSV_V1
+        |
+        v
+explicit solverOptions.modelUnits
+        |
+        v
+ANSYS preflight
+        |
+        v
+staged table/macro + APDL injection
+        |
+        v
+MAPDL execution
+        |
+        v
+run_manifest + recorded binary result
+        |
+        v
+Result Intelligence integrity verification
+        |
+        v
+nodal displacement ResultQuery
+```
+
+The path has two evidence layers with deliberately different claims:
+
+- **Mandatory CI Golden Path:** a strict fake MAPDL process validates the real staging/injection process boundary and supplies the valid `.rst` fixture packaged with `ansys-mapdl-reader`. Production run-manifest hashing and production Result Intelligence are still exercised. The fixture's numerical values are parser/interoperability evidence only and are not attributed to the Golden Model.
+- **Opt-in real ANSYS Golden Path:** a configured `FEM_ANSYS_EXECUTABLE` solves the checked-in full-transient example. The harness fixes the response identity to node 2 X displacement, reruns with earthquake amplitude scales `1.0` and `2.0`, and requires both execution identity and real displacement response to change.
+
+PR11 therefore adds no second solver runner and no second result parser. It proves that the existing Model/Load/Solver/Result boundaries compose into a reproducible end-to-end path.
+
+The example and real causality harness live at `examples/ansys/golden_path/`.
+
 ## Execution and result provenance
 
 Real solver-native Model Bundles are staged under their run directory before execution:
