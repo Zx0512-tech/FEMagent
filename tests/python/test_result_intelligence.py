@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fem_core.errors import FemCoreError
-from fem_core.result_intelligence import inspect_result
+from fem_core.result_intelligence import inspect_result, query_result
 
 
 def _sha(path: Path) -> str:
@@ -86,6 +86,17 @@ def _write_open_sees_run(tmp_path: Path, *, run_id: str = "run_resulttest0001") 
     return run_dir
 
 
+def _strip_standard_response(run_dir: Path) -> None:
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["analysis"] = {"type": "MODEL_SCRIPT"}
+    manifest["summary"] = {"nodeCount": 2, "elementCount": 1, "analysisTime": 1.0}
+    manifest["outputs"].pop("responseCsv", None)
+    manifest["outputs"].pop("responseSha256", None)
+    (run_dir / "response.csv").unlink()
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
 def test_inspect_result_resolves_run_id_directory_and_manifest_path(tmp_path: Path) -> None:
     run_dir = _write_open_sees_run(tmp_path)
 
@@ -146,3 +157,123 @@ def test_inspect_result_rejects_path_escape_and_malformed_manifest(tmp_path: Pat
     with pytest.raises(FemCoreError) as malformed:
         inspect_result(tmp_path, "run_badmanifest")
     assert malformed.value.code == "INVALID_RUN_MANIFEST"
+
+
+def test_query_open_sees_displacement_summary_returns_extrema_and_peak_time(tmp_path: Path) -> None:
+    run_dir = _write_open_sees_run(tmp_path)
+
+    result = query_result(
+        tmp_path,
+        run_dir.name,
+        {
+            "quantity": "DISPLACEMENT",
+            "target": {"type": "NODE", "id": 2},
+            "component": "UX",
+            "operation": "SUMMARY",
+        },
+    )
+
+    assert result["kind"] == "result_query"
+    assert result["quantity"] == "DISPLACEMENT"
+    assert result["component"] == "X"
+    assert result["unit"] == "m"
+    assert result["referenceFrame"] == "RELATIVE"
+    assert result["abscissa"] == {"semantic": "TIME", "unit": "s"}
+    assert result["summary"] == {
+        "sampleCount": 4,
+        "min": -0.03,
+        "max": 0.02,
+        "absolutePeak": 0.03,
+        "abscissaAtAbsolutePeak": 0.2,
+    }
+
+
+def test_query_open_sees_series_supports_paging_and_component_aliases(tmp_path: Path) -> None:
+    run_dir = _write_open_sees_run(tmp_path)
+
+    for alias in ("X", "UX", "U1", "1"):
+        result = query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "ACCELERATION",
+                "target": {"type": "NODE", "id": 2},
+                "component": alias,
+                "operation": "SERIES",
+                "offset": 1,
+                "limit": 2,
+            },
+        )
+        assert result["component"] == "X"
+        assert result["unit"] == "m/s2"
+        assert result["series"] == [
+            {"abscissa": 0.1, "value": 1.0},
+            {"abscissa": 0.2, "value": -0.5},
+        ]
+        assert result["paging"] == {"offset": 1, "limit": 2, "returned": 2, "total": 4}
+
+
+def test_query_rejects_unavailable_channel_and_invalid_page_request(tmp_path: Path) -> None:
+    run_dir = _write_open_sees_run(tmp_path)
+
+    with pytest.raises(FemCoreError) as missing_node:
+        query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "DISPLACEMENT",
+                "target": {"type": "NODE", "id": 999},
+                "component": "X",
+                "operation": "SUMMARY",
+            },
+        )
+    assert missing_node.value.code == "RESULT_SERIES_UNAVAILABLE"
+
+    with pytest.raises(FemCoreError) as reaction:
+        query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "REACTION_FORCE",
+                "target": {"type": "NODE", "id": 2},
+                "component": "X",
+                "operation": "SUMMARY",
+            },
+        )
+    assert reaction.value.code == "RESULT_SERIES_UNAVAILABLE"
+
+    with pytest.raises(FemCoreError) as invalid_limit:
+        query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "DISPLACEMENT",
+                "target": {"type": "NODE", "id": 2},
+                "component": "X",
+                "operation": "SERIES",
+                "limit": 5001,
+            },
+        )
+    assert invalid_limit.value.code == "INVALID_RESULT_QUERY"
+
+
+def test_query_arbitrary_open_sees_bundle_does_not_invent_response_series(tmp_path: Path) -> None:
+    run_dir = _write_open_sees_run(tmp_path, run_id="run_scriptmanaged01")
+    _strip_standard_response(run_dir)
+
+    inspection = inspect_result(tmp_path, run_dir.name)
+    assert inspection["integrity"]["status"] == "LIMITED"
+    assert inspection["queryCapabilities"] == []
+
+    with pytest.raises(FemCoreError) as unavailable:
+        query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "DISPLACEMENT",
+                "target": {"type": "NODE", "id": 2},
+                "component": "X",
+                "operation": "SUMMARY",
+            },
+        )
+    assert unavailable.value.code == "RESULT_SERIES_UNAVAILABLE"
