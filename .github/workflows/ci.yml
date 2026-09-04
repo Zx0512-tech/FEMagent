@@ -49,7 +49,7 @@ jobs:
         run: python -m pytest
 
       - name: Python lint
-        run: python -m ruff check fem_core tests/python
+        run: python -m ruff check fem_core tests/python examples/ansys/golden_path
 
       - name: OpenSees adapter availability smoke
         run: python -c "from fem_core.solvers import get_solver_adapter; s=get_solver_adapter('opensees').status(); assert s['available'], s"
