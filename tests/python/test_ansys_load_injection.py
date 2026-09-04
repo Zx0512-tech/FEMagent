@@ -7,7 +7,6 @@ import pytest
 from fem_core import ansys_bundle, errors
 from fem_core.solvers import ansys_load, ansys_runner
 
-
 CANONICAL_HEADER = (
     "time_s,load_kind,channel_id,application_type,target_type,target_id,component,quantity,value,unit\n"
 )
