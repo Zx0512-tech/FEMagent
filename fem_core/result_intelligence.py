@@ -4,6 +4,7 @@ import csv
 import json
 import math
 from hashlib import sha256
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -183,7 +184,7 @@ def _read_open_sees_response(path: Path) -> dict[str, list[float]]:
     if not columns["time_s"]:
         raise FemCoreError("INVALID_RESULT_SERIES", "OpenSees response CSV contains no samples")
     times = columns["time_s"]
-    if any(current <= previous for previous, current in zip(times, times[1:])):
+    if any(current <= previous for previous, current in pairwise(times)):
         raise FemCoreError(
             "INVALID_RESULT_SERIES",
             "OpenSees response time must be strictly increasing",
