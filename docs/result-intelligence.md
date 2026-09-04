@@ -129,9 +129,9 @@ Result Intelligence follows these rules:
 
 Result Intelligence answers deterministic questions such as:
 
-> What is the recorded X displacement history at node 36?
+> What is the recorded X displacement history at this verified node ID?
 
-It does not prove that node 36 is a tower base, girder end, bearing, or damper location. Engineering-role-to-ID resolution belongs to model/project intelligence and must be established before querying a role-specific result.
+It does not prove that the queried node is a tower base, girder end, bearing, or damper location. Engineering-role-to-ID resolution belongs to model/project intelligence and must be established before querying a role-specific result.
 
 ## Non-goals of V1
 
