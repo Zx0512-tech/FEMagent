@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ansys.mapdl import reader as pymapdl_reader
 from ansys.mapdl.reader import examples
 
+import fem_core.ansys_result_reader as ansys_result_reader
 from fem_core.ansys_result_reader import describe_ansys_binary_result, query_ansys_nodal_result
+from fem_core.errors import FemCoreError
 
 
 def test_ansys_reader_describes_real_packaged_rst_example() -> None:
@@ -40,3 +43,18 @@ def test_ansys_reader_queries_real_nodal_displacement_without_inventing_units() 
     assert result["referenceFrame"] == "SOLVER_NATIVE"
     assert len(result["abscissaValues"]) == len(result["values"])
     assert len(result["values"]) >= 1
+
+
+def test_ansys_reader_preserves_optional_dependency_error(monkeypatch) -> None:
+    def unavailable():
+        raise FemCoreError(
+            "ANSYS_RESULT_READER_UNAVAILABLE",
+            "ANSYS binary result support requires the optional ansys-results dependency",
+        )
+
+    monkeypatch.setattr(ansys_result_reader, "_reader_module", unavailable)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        describe_ansys_binary_result(Path(examples.rstfile))
+
+    assert exc_info.value.code == "ANSYS_RESULT_READER_UNAVAILABLE"
