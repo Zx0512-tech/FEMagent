@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openpyxl import Workbook
+
+from fem_core.load_standardization import standardize_load
 from fem_core.solvers.registry import get_solver_adapter
 
 CANONICAL_HEADER = (
@@ -153,6 +156,58 @@ def test_ansys_canonical_real_run_injects_only_staged_bundle_and_records_identit
     assert result["load"]["hook"]["path"] == "bridge.inp"
     assert (tmp_path / model_path).read_bytes() == source_model_before
     assert (tmp_path / load_path).read_bytes() == source_load_before
+
+
+def test_xlsx_to_canonical_csv_to_ansys_macro_and_staged_apdl_is_traceable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _transient_model(tmp_path)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["time_s", "acceleration_g"])
+    sheet.append([0.0, 0.0])
+    sheet.append([0.5, 0.1])
+    sheet.append([1.0, -0.05])
+    workbook.save(tmp_path / "earthquake.xlsx")
+
+    standardized = standardize_load(
+        tmp_path,
+        "earthquake.xlsx",
+        {
+            "version": 1,
+            "loadKind": "EARTHQUAKE",
+            "timeColumn": "time_s",
+            "timeUnit": "s",
+            "valueColumn": "acceleration_g",
+            "quantity": "ACCELERATION",
+            "sourceUnit": "g",
+            "applicationType": "UNIFORM_EXCITATION",
+            "component": "X",
+            "scale": 1.0,
+        },
+    )
+    canonical_path = standardized["output"]["path"]
+
+    result = get_solver_adapter("ansys").run(
+        tmp_path,
+        model_path=model_path,
+        load_path=canonical_path,
+        solver_options=_solver_options(),
+    )
+
+    assert standardized["format"] == "FEMAGENT_LOAD_CSV_V1"
+    assert result["load"]["sourceSha256"] == standardized["output"]["sha256"]
+    macro = tmp_path / result["outputs"]["generatedLoadMacro"]
+    assert "*TREAD,FEMAGAC,femagent_load_table,txt,,2" in macro.read_text(encoding="utf-8")
+    staged_entrypoint = tmp_path / result["outputs"]["stagedBundleRoot"] / "bridge.inp"
+    assert "/INPUT,'femagent_load','mac'" in staged_entrypoint.read_text(encoding="utf-8")
+    assert result["injection"]["injected"] is True
+    assert len(result["injection"]["macroSha256"]) == 64
+    assert len(result["injection"]["tableSha256"]) == 64
 
 
 def test_ansys_canonical_load_change_changes_execution_and_case_fingerprints(
