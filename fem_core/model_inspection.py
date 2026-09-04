@@ -6,6 +6,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from fem_core.ansys_bundle import discover_ansys_bundle, has_ansys_model_signals
 from fem_core.errors import FemCoreError
 from fem_core.opensees_python_inspection import inspect_opensees_python
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
@@ -72,12 +73,13 @@ def _coordinate_bounds(bounds: dict[str, list[float]], count: int) -> dict[str, 
 def _execution_eligibility(
     *,
     forbidden_hits: list[dict[str, Any]],
+    bundle_blocked: bool,
     missing_prep7: bool,
     missing_nodes: bool,
     missing_elements: bool,
     requires_solver_inspection: bool,
 ) -> str:
-    if forbidden_hits:
+    if forbidden_hits or bundle_blocked:
         return "REJECTED"
     if missing_prep7 or missing_nodes or missing_elements:
         return "INCOMPLETE"
@@ -112,8 +114,33 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
             "The FEM model file exceeds the 50 MiB inspection limit",
         )
 
-    text, encoding = decode_engineering_text(content)
-    lines = text.splitlines()
+    entry_text, encoding = decode_engineering_text(content)
+    if suffix in {".txt", ".dat"} and not has_ansys_model_signals(entry_text):
+        raise FemCoreError(
+            "NOT_ANSYS_MODEL",
+            "TXT/DAT entrypoint does not contain deterministic APDL/CDB model signals",
+            details={"path": workspace_relative_path(workspace, path)},
+        )
+
+    bundle = discover_ansys_bundle(workspace, raw_path)
+    source_lines: list[tuple[str, int, str]] = []
+    total_bundle_bytes = 0
+    for file_info in bundle["files"]:
+        bundle_path = (workspace.resolve() / str(file_info["path"])).resolve()
+        file_content = bundle_path.read_bytes()
+        total_bundle_bytes += len(file_content)
+        if total_bundle_bytes > MAX_MODEL_BYTES:
+            raise FemCoreError(
+                "MODEL_FILE_TOO_LARGE",
+                "The resolved ANSYS Model Bundle exceeds the 50 MiB inspection limit",
+            )
+        if bundle_path.suffix.lower() not in ANSYS_MODEL_SUFFIXES:
+            continue
+        file_text, _ = decode_engineering_text(file_content)
+        source_lines.extend(
+            (str(file_info["path"]), line_number, line)
+            for line_number, line in enumerate(file_text.splitlines(), start=1)
+        )
 
     explicit_node_commands = 0
     explicit_element_commands = 0
@@ -140,7 +167,7 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
         "z": [float("inf"), float("-inf")],
     }
 
-    for line_number, line in enumerate(lines, start=1):
+    for source_path, line_number, line in source_lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("!"):
             continue
@@ -149,7 +176,12 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
         for marker in FORBIDDEN_APDL_COMMANDS:
             if lowered.startswith(marker):
                 forbidden_hits.append(
-                    {"line": line_number, "marker": marker, "command": stripped[:120]}
+                    {
+                        "sourcePath": source_path,
+                        "line": line_number,
+                        "marker": marker,
+                        "command": stripped[:120],
+                    }
                 )
                 break
 
@@ -217,7 +249,9 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
     has_element_definitions = explicit_element_commands > 0 or eblock_count > 0
     parameterized = do_loop_count > 0
     block_based = nblock_count > 0 or eblock_count > 0
-    requires_solver_inspection = parameterized or block_based
+    include_driven = bool(bundle["dependencies"])
+    bundle_blocked = bundle["integrity"] != "VALID"
+    requires_solver_inspection = parameterized or block_based or include_driven
 
     issues: list[dict[str, str]] = []
     if not has_prep7:
@@ -228,11 +262,14 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
         issues.append({"code": "NO_ELEMENT_DEFINITIONS", "severity": "ERROR"})
     if forbidden_hits:
         issues.append({"code": "FORBIDDEN_APDL_COMMAND", "severity": "ERROR"})
-    if requires_solver_inspection:
+    if bundle_blocked:
+        issues.append({"code": "MODEL_BUNDLE_BLOCKED", "severity": "ERROR"})
+    if requires_solver_inspection and not bundle_blocked:
         issues.append({"code": "SOLVER_INSPECTION_REQUIRED", "severity": "INFO"})
 
     execution_eligibility = _execution_eligibility(
         forbidden_hits=forbidden_hits,
+        bundle_blocked=bundle_blocked,
         missing_prep7=not has_prep7,
         missing_nodes=not has_node_definitions,
         missing_elements=not has_element_definitions,
@@ -272,6 +309,8 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
         manifest_warnings.append("COORDINATE_BOUNDS_USE_NUMERIC_EXPLICIT_N_COMMANDS_ONLY")
     if components:
         manifest_warnings.append("COMPONENT_NAMES_DO_NOT_PROVE_ENGINEERING_ROLES")
+    if include_driven:
+        manifest_warnings.append("MULTIFILE_MODEL_REQUIRES_SOLVER_INSPECTION")
 
     return {
         "schemaVersion": "1.1",
@@ -286,6 +325,7 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
             "sizeBytes": len(content),
             "encoding": encoding,
         },
+        "bundle": bundle,
         "validation": {
             "status": validation_status,
             "executionEligibility": execution_eligibility,
@@ -294,12 +334,15 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
                 "nodeDefinitions": "PASSED" if has_node_definitions else "FAILED",
                 "elementDefinitions": "PASSED" if has_element_definitions else "FAILED",
                 "forbiddenCommandScan": "FAILED" if forbidden_hits else "PASSED",
+                "bundleIntegrity": "FAILED" if bundle_blocked else "PASSED",
             },
             "issues": issues,
             "forbiddenCommands": forbidden_hits[:10],
         },
         "summary": {
-            "lineCount": len(lines),
+            "lineCount": len(source_lines),
+            "bundleFileCount": len(bundle["files"]),
+            "dependencyCount": len(bundle["dependencies"]),
             "explicitNodeCommandCount": explicit_node_commands,
             "explicitElementCommandCount": explicit_element_commands,
             "nodeBlockCount": nblock_count,
@@ -320,13 +363,14 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
                     "REJECTED_UNSAFE"
                     if forbidden_hits
                     else "INCOMPLETE_MODEL"
-                    if execution_eligibility == "INCOMPLETE"
+                    if bundle_blocked or execution_eligibility == "INCOMPLETE"
                     else "REQUIRES_SOLVER_INSPECTION"
                     if requires_solver_inspection
                     else "STATIC_TEXT_COMPATIBLE"
                 ),
                 "opensees": "NOT_DIRECTLY_COMPATIBLE",
             },
+            "bundleFingerprint": bundle["bundleFingerprint"],
             "topology": {
                 "nodeCount": {"value": exact_explicit_node_count, "basis": node_count_basis},
                 "elementCount": {"value": element_count, "basis": element_count_basis},
@@ -353,6 +397,7 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
             "generation": {
                 "parametric": parameterized,
                 "blockBased": block_based,
+                "includeDriven": include_driven,
                 "doLoopCount": do_loop_count,
             },
             "warnings": manifest_warnings,

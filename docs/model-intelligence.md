@@ -8,12 +8,25 @@ FEMagent separates model inspection evidence from engineering interpretation. A 
 
 Current model families are:
 
-- ANSYS APDL/CDB-style text,
+- ANSYS APDL/CDB-style Model Bundles,
 - OpenSees Python entrypoints and their workspace-local Model Bundles.
 
-The TypeScript bridge exposes these as a discriminated model-inspection union so downstream tools can branch on the returned format rather than maintaining solver-specific tool names.
+The TypeScript bridge exposes these through generic model-inspection contracts so downstream tools can branch on the returned format rather than maintaining solver-specific tool names.
 
-## ANSYS APDL/CDB static inspection
+## ANSYS APDL/CDB Model Bundle
+
+ANSYS model entrypoints and included script/model members may use:
+
+- `.cdb`,
+- `.inp`,
+- `.apdl`,
+- `.mac`,
+- `.dat`,
+- `.txt`.
+
+`.txt` and `.dat` are not trusted as models by suffix alone. FEMagent requires deterministic APDL/CDB content signals such as `/PREP7`, `NBLOCK`/`EBLOCK`, `N`/`E`/`ET`/`MP`/`SECTYPE`/`CM`, `/INPUT`, or `*USE` before promoting TXT/DAT as an ANSYS model entrypoint.
+
+### Static APDL evidence
 
 The APDL inspector records defensible source-level facts such as:
 
@@ -29,7 +42,26 @@ The APDL inspector records defensible source-level facts such as:
 - numeric coordinate bounds when literal `N` coordinates are available,
 - forbidden APDL command hits such as `/SYS`, `/SYP`, `/DELETE`, and `~`.
 
-A topology count is populated only when its basis is defensible from static text. `null` means unknown, not zero. Parameterized or block-based APDL can require later controlled solver inspection because static text cannot always enumerate the realized topology.
+A topology count is populated only when its basis is defensible from static text. `null` means unknown, not zero. Parameterized or block-based APDL can require controlled solver inspection because static text cannot always enumerate the realized topology.
+
+### ANSYS dependency discovery
+
+PR8 follows static `/INPUT` and `*USE` references recursively and emits a bundle manifest containing:
+
+- entrypoint path/hash,
+- resolved bundle files and roles,
+- dependency type and resolution status,
+- SHA256 for every included file,
+- deterministic `bundleFingerprint`,
+- bundle integrity and warnings.
+
+Missing dependencies or references escaping the active workspace block the bundle. PR8 also blocks absolute include references even when they happen to point inside the workspace, because real execution is performed from a staged copy and an absolute source reference could bypass that staged provenance boundary.
+
+### ANSYS build-only evidence
+
+When static safety, bundle integrity, and runtime availability permit it, `fem_solver_preflight` with `solver: ansys` stages a sanitized copy of the Model Bundle and runs MAPDL in build-only mode.
+
+The staged input stops before `/SOLU`, `SOLVE`, or postprocessing. This establishes build/preflight evidence without intentionally executing the requested analysis. It does not yet provide full realized ANSYS topology or numerical responses; those belong to later Result Intelligence.
 
 ## OpenSees Python static inspection
 
@@ -37,7 +69,7 @@ Python inspection is AST-based and does not execute the user's model. It identif
 
 AST inspection deliberately does **not** pretend that Python source is a fully realized FEM domain. Loops, helper functions, imported modules, and computed tags can make final topology unknowable until model construction occurs inside the solver runtime.
 
-### Model Bundle
+### OpenSees Model Bundle
 
 For an OpenSees Python entrypoint, FEMagent discovers the workspace-local dependency closure and emits a Model Bundle manifest containing:
 
@@ -60,21 +92,27 @@ External installed Python packages may be referenced as runtime dependencies, bu
 
 For safe OpenSees Python bundles, solver preflight may run **build-only inspection** in an isolated OpenSees worker. The worker permits model construction but intercepts `ops.analyze()` so the requested analysis does not advance.
 
-This creates two deliberately separate evidence layers:
+For ANSYS, build-only preflight uses a sanitized staged APDL bundle and stops before the requested solution/postprocessing stage.
+
+These are deliberately separate evidence layers:
 
 ```text
-Python AST + Model Bundle
+Static source + Model Bundle
         |
-        | static source/dependency evidence
         v
-OpenSees build-only inspection
+Solver-specific build-only inspection
         |
-        | realized solver-domain evidence
         v
-node tags / element tags / coordinates
+Preflight/build evidence
+        |
+        v
+User-approved real solver execution
+        |
+        v
+Numerical result evidence
 ```
 
-Only the second layer can establish realized OpenSees topology for dynamic Python construction. Numerical response still requires an actual solver run.
+OpenSees build-only can currently expose realized node/element-domain information. ANSYS PR8 build-only currently establishes safe staged construction/process evidence; detailed domain/result extraction is deferred.
 
 ## Engineering semantics
 
@@ -84,4 +122,4 @@ Likewise X/Y/Z are coordinate axes only. Longitudinal/transverse/vertical meanin
 
 ## Migration boundary
 
-The APDL static parsing ideas were extracted from momoagent's model-import work, while PR6 added the solver-neutral Model Bundle direction and OpenSees Python inspection path. FastAPI platform stores, fixed task types, workflow guards, and artifact persistence are intentionally not part of Model Intelligence.
+The APDL static parsing ideas were extracted from momoagent's model-import work. PR6 introduced solver-neutral Model Bundles and OpenSees Python inspection; PR8 extends the same bundle/preflight architecture to ANSYS. FastAPI platform stores, fixed task types, workflow guards, and artifact persistence are intentionally not part of Model Intelligence.

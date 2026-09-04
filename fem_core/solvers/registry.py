@@ -10,8 +10,12 @@ def get_solver_adapter(name: str) -> SolverAdapter:
         from fem_core.solvers.opensees_python import OpenSeesBundleAdapter
 
         return OpenSeesBundleAdapter()
+    if normalized in {"ansys", "mapdl", "ansys-mapdl"}:
+        from fem_core.solvers.ansys import AnsysAdapter
+
+        return AnsysAdapter()
     raise FemCoreError(
         "UNSUPPORTED_SOLVER",
         "The requested FEM solver adapter is not available",
-        details={"solver": name, "supported": ["opensees"]},
+        details={"solver": name, "supported": ["ansys", "opensees"]},
     )

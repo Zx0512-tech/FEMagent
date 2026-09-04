@@ -8,11 +8,15 @@ import {
   type FemBridgeEnvelope,
   type FemHealth,
   type FemLoadInspection,
-  type FemSolverStatus,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
-import type { FemSolverPreflight, FemSolverRun } from "./solverTypes.js";
+import type {
+  FemSolverKey,
+  FemSolverPreflight,
+  FemSolverRun,
+  FemSolverStatus,
+} from "./solverTypes.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -187,22 +191,22 @@ export async function runFemLoadStandardize(
   );
 }
 
-export async function runFemSolverStatus(
+export async function runFemSolverStatus<S extends FemSolverKey>(
   cwd: string,
-  solver: string,
+  solver: S,
   signal?: AbortSignal,
-): Promise<FemSolverStatus> {
-  return await runFemCoreRequest<FemSolverStatus>(cwd, "solver.status", { solver }, { signal });
+): Promise<FemSolverStatus<S>> {
+  return await runFemCoreRequest<FemSolverStatus<S>>(cwd, "solver.status", { solver }, { signal });
 }
 
-export async function runFemSolverPreflight(
+export async function runFemSolverPreflight<S extends FemSolverKey>(
   cwd: string,
-  solver: string,
+  solver: S,
   modelPath: string,
   loadPath?: string,
   signal?: AbortSignal,
-): Promise<FemSolverPreflight> {
-  return await runFemCoreRequest<FemSolverPreflight>(
+): Promise<FemSolverPreflight<S>> {
+  return await runFemCoreRequest<FemSolverPreflight<S>>(
     cwd,
     "solver.preflight",
     { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
@@ -210,14 +214,14 @@ export async function runFemSolverPreflight(
   );
 }
 
-export async function runFemSolverRun(
+export async function runFemSolverRun<S extends FemSolverKey>(
   cwd: string,
-  solver: string,
+  solver: S,
   modelPath: string,
   loadPath?: string,
   signal?: AbortSignal,
-): Promise<FemSolverRun> {
-  return await runFemCoreRequest<FemSolverRun>(
+): Promise<FemSolverRun<S>> {
+  return await runFemCoreRequest<FemSolverRun<S>>(
     cwd,
     "solver.run",
     { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
