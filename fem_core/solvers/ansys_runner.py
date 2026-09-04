@@ -41,6 +41,8 @@ def stage_ansys_bundle(
     stage_root: Path,
     *,
     sanitize_for_build: bool,
+    load_include_command: str | None = None,
+    load_hook_path: str | None = None,
 ) -> dict[str, Path]:
     root = workspace.resolve()
     stage = stage_root.resolve()
@@ -62,7 +64,17 @@ def stage_ansys_bundle(
         if sanitize_for_build and source.suffix.lower() in ANSYS_BUNDLE_SUFFIXES:
             content = source.read_bytes()
             text, _ = decode_engineering_text(content)
-            destination.write_text(sanitize_apdl_for_build(text), encoding="utf-8")
+            include = (
+                load_include_command
+                if load_include_command is not None
+                and load_hook_path is not None
+                and relative.as_posix() == Path(load_hook_path).as_posix()
+                else None
+            )
+            destination.write_text(
+                sanitize_apdl_for_build(text, load_include_command=include),
+                encoding="utf-8",
+            )
         else:
             shutil.copy2(source, destination)
 
