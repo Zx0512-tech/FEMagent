@@ -106,6 +106,7 @@ def test_ansys_canonical_preflight_build_checks_generated_load(tmp_path: Path, m
     assert report["load"]["mode"] == "FEMAGENT_CANONICAL_UNIFORM_EXCITATION"
     assert report["load"]["injected"] is False
     assert report["load"]["injectionStatus"] == "VALIDATED_FOR_STAGING"
+    assert report["load"]["unit"] == "m/s2"
     assert report["load"]["modelUnits"]["length"] == "mm"
     build = report["model"]["buildInspection"]
     assert build["loadInjectionValidated"] is True
@@ -139,9 +140,11 @@ def test_ansys_canonical_real_run_injects_only_staged_bundle_and_records_identit
     assert result["load"]["mode"] == "FEMAGENT_CANONICAL_UNIFORM_EXCITATION"
     assert result["load"]["injected"] is True
     assert result["load"]["component"] == "X"
+    assert result["load"]["unit"] == "m/s2"
     assert result["load"]["canonicalUnit"] == "m/s2"
     assert result["load"]["modelUnits"]["acceleration"] == "mm/s2"
     assert len(result["load"]["executionInputFingerprint"]) == 64
+    assert result["executionInputFingerprint"] == result["load"]["executionInputFingerprint"]
     assert len(result["caseFingerprint"]) == 64
     staged_root = tmp_path / result["outputs"]["stagedBundleRoot"]
     staged_entrypoint = staged_root / "bridge.inp"
@@ -234,5 +237,63 @@ def test_ansys_canonical_load_change_changes_execution_and_case_fingerprints(
         solver_options=_solver_options(),
     )
 
-    assert first["load"]["executionInputFingerprint"] != second["load"]["executionInputFingerprint"]
+    assert first["executionInputFingerprint"] != second["executionInputFingerprint"]
+    assert first["caseFingerprint"] != second["caseFingerprint"]
+
+
+def test_ansys_canonical_model_bundle_change_changes_execution_fingerprint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _transient_model(tmp_path)
+    load_path = _canonical_load(tmp_path)
+    adapter = get_solver_adapter("ansys")
+
+    first = adapter.run(
+        tmp_path,
+        model_path=model_path,
+        load_path=load_path,
+        solver_options=_solver_options(),
+    )
+    source_model = tmp_path / model_path
+    source_model.write_text(source_model.read_text(encoding="utf-8") + "! bundle identity changed\n", encoding="utf-8")
+    second = adapter.run(
+        tmp_path,
+        model_path=model_path,
+        load_path=load_path,
+        solver_options=_solver_options(),
+    )
+
+    assert first["model"]["bundleFingerprint"] != second["model"]["bundleFingerprint"]
+    assert first["executionInputFingerprint"] != second["executionInputFingerprint"]
+    assert first["caseFingerprint"] != second["caseFingerprint"]
+
+
+def test_ansys_canonical_generated_artifact_change_changes_execution_fingerprint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _transient_model(tmp_path)
+    load_path = _canonical_load(tmp_path)
+    adapter = get_solver_adapter("ansys")
+
+    first = adapter.run(
+        tmp_path,
+        model_path=model_path,
+        load_path=load_path,
+        solver_options={"modelUnits": {"length": "mm", "time": "s"}},
+    )
+    second = adapter.run(
+        tmp_path,
+        model_path=model_path,
+        load_path=load_path,
+        solver_options={"modelUnits": {"length": "cm", "time": "s"}},
+    )
+
+    assert first["injection"]["tableSha256"] != second["injection"]["tableSha256"]
+    assert first["executionInputFingerprint"] != second["executionInputFingerprint"]
     assert first["caseFingerprint"] != second["caseFingerprint"]
