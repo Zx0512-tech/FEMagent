@@ -21,6 +21,16 @@ export {
   type FemOpenSeesPythonModelInspection,
 } from "./modelTypes.js";
 export {
+  type FemResultArtifact,
+  type FemResultCapability,
+  type FemResultIntegrityStatus,
+  type FemResultManifest,
+  type FemResultOperation,
+  type FemResultQuery,
+  type FemResultQueryRequest,
+  type FemResultQuerySummary,
+} from "./resultTypes.js";
+export {
   type FemSolverDisplayName,
   type FemSolverExecutionMode,
   type FemSolverKey,
@@ -36,6 +46,8 @@ export {
   runFemLoadInspect,
   runFemLoadStandardize,
   runFemModelInspect,
+  runFemResultInspect,
+  runFemResultQuery,
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,

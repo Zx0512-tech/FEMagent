@@ -9,6 +9,7 @@ from fem_core.load_inspection import inspect_load
 from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
+from fem_core.result_intelligence import inspect_result, query_result
 from fem_core.solvers import get_solver_adapter
 
 
@@ -76,6 +77,14 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 _required_text(payload, "path"),
                 _required_object(payload, "mapping"),
                 output_path=output_path,
+            )
+        elif command == "result.inspect":
+            result = inspect_result(workspace, _required_text(payload, "runRef"))
+        elif command == "result.query":
+            result = query_result(
+                workspace,
+                _required_text(payload, "runRef"),
+                _required_object(payload, "query"),
             )
         elif command == "solver.status":
             result = get_solver_adapter(_required_text(payload, "solver")).status()

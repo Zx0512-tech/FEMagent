@@ -4,6 +4,8 @@ import {
   runFemLoadInspect,
   runFemLoadStandardize,
   runFemModelInspect,
+  runFemResultInspect,
+  runFemResultQuery,
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,
@@ -12,6 +14,20 @@ import { Type } from "typebox";
 
 const solverName = Type.Union([Type.Literal("opensees"), Type.Literal("ansys")], {
   description: "Concrete FEM solver adapter. Current support is OpenSeesPy and ANSYS MAPDL.",
+});
+
+const resultQuantity = Type.Union(
+  [
+    Type.Literal("DISPLACEMENT"),
+    Type.Literal("VELOCITY"),
+    Type.Literal("ACCELERATION"),
+    Type.Literal("REACTION_FORCE"),
+  ],
+  { description: "Recorded nodal result quantity to query" },
+);
+
+const resultOperation = Type.Union([Type.Literal("SUMMARY"), Type.Literal("SERIES")], {
+  description: "Return extrema/peak summary or a bounded recorded series slice",
 });
 
 export default function femToolsExtension(pi: ExtensionAPI) {
@@ -91,6 +107,71 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "fem_result_inspect",
+    label: "Inspect FEM Results",
+    description: "Read and validate a completed FEMagent solver run, verify recorded result artifacts and enumerate deterministic query capabilities without rerunning a solver.",
+    promptSnippet: "Inspect completed FEM results before making numerical response claims",
+    promptGuidelines: [
+      "Use fem_result_inspect before making numerical claims from a completed run; inspect integrity.status and warnings first.",
+      "VALID means the recorded result artifact passed the available integrity/reader checks. LIMITED means standardized numerical evidence is unavailable or incomplete; it never means the physical response is zero.",
+      "For controlled OpenSees response.csv runs, SI units and time seconds are proven by the FEMagent recorder contract.",
+      "For ANSYS MAPDL binary results, unit:null means the model unit system is not proven. Never silently label solver-native values as SI.",
+      "ANSYS SOLVER_NATIVE_RESULT_ABSCISSA must not be called time in seconds unless separate model/project evidence establishes that interpretation.",
+      "Result capabilities do not prove engineering roles such as tower base, girder end or bearing. Resolve engineering role to deterministic node IDs separately; never guess IDs from names.",
+      "This tool is read-only and must never trigger solver execution.",
+    ],
+    parameters: Type.Object({
+      runRef: Type.String({ description: "run_<id>, workspace-relative run directory, or run_manifest.json path" }),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemResultInspect(ctx.cwd, params.runRef, signal);
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_result_query",
+    label: "Query FEM Results",
+    description: "Query one recorded nodal result series or summary from a completed FEMagent run. This is a SAFE read-only operation and never invokes a solver.",
+    promptSnippet: "Query deterministic recorded FEM response values after inspecting available result capabilities",
+    promptGuidelines: [
+      "Call fem_result_inspect first and query only a quantity/component supported by the recorded artifacts.",
+      "Never use fem_result_query as a substitute for resolving an unknown engineering target. Node IDs must come from deterministic model/project evidence.",
+      "If unit is null, report the unit as unknown rather than inferring SI from magnitude or solver defaults.",
+      "Do not interpret solver-native ANSYS abscissa values as seconds unless separate evidence proves the analysis semantics and unit system.",
+      "SUMMARY and SERIES are computed from recorded artifacts only; this tool never reruns OpenSees or ANSYS.",
+    ],
+    parameters: Type.Object({
+      runRef: Type.String({ description: "run_<id>, workspace-relative run directory, or run_manifest.json path" }),
+      quantity: resultQuantity,
+      target: Type.Object({
+        type: Type.Literal("NODE"),
+        id: Type.Integer({ minimum: 1, description: "Recorded solver node ID" }),
+      }),
+      component: Type.String({ description: "Cartesian component alias such as X, UX, U1, or 1" }),
+      operation: resultOperation,
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "SERIES starting sample offset" })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 5000, description: "SERIES maximum returned samples" })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemResultQuery(
+        ctx.cwd,
+        params.runRef,
+        {
+          quantity: params.quantity,
+          target: params.target,
+          component: params.component,
+          operation: params.operation,
+          ...(params.offset === undefined ? {} : { offset: params.offset }),
+          ...(params.limit === undefined ? {} : { limit: params.limit }),
+        },
+        signal,
+      );
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
     name: "fem_solver_status",
     label: "FEM Solver Status",
     description: "Check installation/configuration and declared capabilities of OpenSeesPy or ANSYS MAPDL without running a finite-element analysis.",
@@ -140,7 +221,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "OpenSees Python entrypoints may own their load/analysis definition; omitted loadPath is valid only when preflight reports MODEL_SCRIPT_MANAGED.",
       "ANSYS runs must execute the staged Model Bundle, not the user's original source directory; preserve bundleFingerprint and per-file hashes as provenance.",
       "Do not execute a model whose static inspection, dependency graph, or build-only inspection is blocked.",
-      "PR8 ANSYS run completion proves the MAPDL process returned successfully and outputs were captured; numerical result truth still requires later Result Intelligence rather than LLM inference.",
+      "ANSYS run completion proves the MAPDL process returned successfully and outputs were captured; use fem_result_inspect/query for numerical result truth rather than LLM inference.",
     ],
     parameters: Type.Object({
       solver: solverName,

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -9,6 +12,8 @@ import {
   runFemLoadInspect,
   runFemLoadStandardize,
   runFemModelInspect,
+  runFemResultInspect,
+  runFemResultQuery,
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,
@@ -28,6 +33,70 @@ const earthquakeMapping = {
   component: "X",
   scale: 1.0,
 };
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function writeSyntheticResultRun(): Promise<{ runId: string; runDir: string }> {
+  const runId = `run_ts${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const relativeRunDir = path.posix.join(".femagent", "runs", runId);
+  const runDir = path.join(cwd, relativeRunDir);
+  await mkdir(runDir, { recursive: true });
+
+  const response = [
+    "time_s,relative_displacement_m,relative_velocity_m_s,relative_acceleration_m_s2",
+    "0,0,0,0",
+    "0.1,0.02,0.2,1",
+    "0.2,-0.03,-0.1,-0.5",
+    "0.3,0.01,0,0.25",
+    "",
+  ].join("\n");
+  const summaryObject = {
+    responseNode: 2,
+    responseDof: 1,
+    sampleCount: 4,
+    minDisplacementM: -0.03,
+    maxDisplacementM: 0.02,
+    absolutePeakDisplacementM: 0.03,
+    timeAtAbsolutePeakS: 0.2,
+  };
+  const summary = `${JSON.stringify(summaryObject, null, 2)}\n`;
+  const solverLog = "synthetic TypeScript Result Intelligence run\n";
+  await writeFile(path.join(runDir, "response.csv"), response, "utf8");
+  await writeFile(path.join(runDir, "result_summary.json"), summary, "utf8");
+  await writeFile(path.join(runDir, "solver.log"), solverLog, "utf8");
+
+  const outputs = {
+    runManifest: path.posix.join(relativeRunDir, "run_manifest.json"),
+    responseCsv: path.posix.join(relativeRunDir, "response.csv"),
+    responseSha256: sha256(response),
+    resultSummary: path.posix.join(relativeRunDir, "result_summary.json"),
+    resultSummarySha256: sha256(summary),
+    solverLog: path.posix.join(relativeRunDir, "solver.log"),
+    solverLogSha256: sha256(solverLog),
+  };
+  const manifest = {
+    schemaVersion: "1.0",
+    kind: "solver_run",
+    runId,
+    caseFingerprint: "a".repeat(64),
+    status: "COMPLETED",
+    solver: {
+      name: "OPENSEESPY",
+      packageVersion: "3.8.0.0",
+      engineVersion: "3.8.0",
+      executionMode: "ISOLATED_WORKER_PROCESS",
+    },
+    model: { path: "synthetic-model.json", sha256: "b".repeat(64) },
+    load: { path: "synthetic-load.csv", sha256: "c".repeat(64) },
+    analysis: { type: "TRANSIENT_UNIFORM_EXCITATION" },
+    summary: summaryObject,
+    outputs,
+  };
+  await writeFile(path.join(runDir, "run_manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  return { runId, runDir };
+}
 
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
@@ -125,6 +194,30 @@ test("ANSYS status and fail-closed preflight use the generic solver bridge contr
   } finally {
     if (previous === undefined) delete process.env.FEM_ANSYS_EXECUTABLE;
     else process.env.FEM_ANSYS_EXECUTABLE = previous;
+  }
+});
+
+test("Result Intelligence inspect and query cross the read-only bridge", async () => {
+  const { runId, runDir } = await writeSyntheticResultRun();
+  try {
+    const inspection = await runFemResultInspect(cwd, runId);
+    assert.equal(inspection.kind, "result_manifest");
+    assert.equal(inspection.integrity.status, "VALID");
+    assert.ok(inspection.queryCapabilities.some((item) => item.quantity === "DISPLACEMENT"));
+
+    const query = await runFemResultQuery(cwd, runId, {
+      quantity: "DISPLACEMENT",
+      target: { type: "NODE", id: 2 },
+      component: "UX",
+      operation: "SUMMARY",
+    });
+    assert.equal(query.kind, "result_query");
+    assert.equal(query.component, "X");
+    assert.equal(query.unit, "m");
+    assert.equal(query.summary?.absolutePeak, 0.03);
+    assert.equal(query.summary?.abscissaAtAbsolutePeak, 0.2);
+  } finally {
+    await rm(runDir, { recursive: true, force: true });
   }
 });
 
