@@ -4,7 +4,6 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNNER_PATH = _REPO_ROOT / "examples" / "ansys" / "golden_path" / "run_golden_path.py"
 _MODEL_PATH = _REPO_ROOT / "examples" / "ansys" / "golden_path" / "model.inp"
