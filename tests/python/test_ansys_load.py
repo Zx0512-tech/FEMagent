@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from fem_core.errors import FemCoreError
-from fem_core.solvers.ansys_load import read_ansys_canonical_uniform_excitation
+from fem_core.solvers.ansys_load import (
+    read_ansys_canonical_uniform_excitation,
+)
 
 
 CANONICAL_HEADER = (
