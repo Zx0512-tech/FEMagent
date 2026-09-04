@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fem_core.errors import FemCoreError
+from fem_core import errors
 from fem_core.solvers import ansys_load
 
 
@@ -112,11 +112,11 @@ def test_ansys_canonical_load_requires_explicit_supported_model_units(tmp_path: 
         ],
     )
 
-    with pytest.raises(FemCoreError) as missing:
+    with pytest.raises(errors.FemCoreError) as missing:
         ansys_load.read_ansys_canonical_uniform_excitation(path, {})
     assert missing.value.code == "ANSYS_MODEL_UNITS_REQUIRED"
 
-    with pytest.raises(FemCoreError) as unsupported:
+    with pytest.raises(errors.FemCoreError) as unsupported:
         ansys_load.read_ansys_canonical_uniform_excitation(
             path,
             {"length": "in", "time": "s"},
@@ -133,7 +133,7 @@ def test_ansys_canonical_load_rejects_non_global_target_and_wrong_contract(tmp_p
         ],
         name="targeted.csv",
     )
-    with pytest.raises(FemCoreError) as target_error:
+    with pytest.raises(errors.FemCoreError) as target_error:
         ansys_load.read_ansys_canonical_uniform_excitation(
             targeted,
             {"length": "m", "time": "s"},
@@ -148,7 +148,7 @@ def test_ansys_canonical_load_rejects_non_global_target_and_wrong_contract(tmp_p
         ],
         name="wrong.csv",
     )
-    with pytest.raises(FemCoreError) as contract_error:
+    with pytest.raises(errors.FemCoreError) as contract_error:
         ansys_load.read_ansys_canonical_uniform_excitation(
             wrong,
             {"length": "m", "time": "s"},
@@ -167,7 +167,7 @@ def test_ansys_canonical_load_rejects_multiple_channels_and_nonincreasing_time(t
         ],
         name="multi.csv",
     )
-    with pytest.raises(FemCoreError) as multi_error:
+    with pytest.raises(errors.FemCoreError) as multi_error:
         ansys_load.read_ansys_canonical_uniform_excitation(
             multi,
             {"length": "m", "time": "s"},
@@ -182,7 +182,7 @@ def test_ansys_canonical_load_rejects_multiple_channels_and_nonincreasing_time(t
         ],
         name="bad-time.csv",
     )
-    with pytest.raises(FemCoreError) as time_error:
+    with pytest.raises(errors.FemCoreError) as time_error:
         ansys_load.read_ansys_canonical_uniform_excitation(
             bad_time,
             {"length": "m", "time": "s"},
