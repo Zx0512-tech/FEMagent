@@ -60,11 +60,11 @@ The fake executable must:
 3. fail if the expected PR10 canonical-load injection is absent;
 4. fail if build-only input contains requested solve commands;
 5. emit deterministic runtime output;
-6. copy a valid packaged ANSYS `.rst` fixture from the installed `ansys-mapdl-reader` dependency into the expected job result path.
+6. copy the valid packaged ANSYS `.rst` fixture exposed by `ansys.mapdl.reader.examples.rstfile` into the expected job result path.
 
 The copied `.rst` is a parser/integrity fixture, not a numerical solution of the Golden Model. CI therefore proves orchestration, staging, provenance, artifact integrity, and Result Intelligence interoperability. It must not claim that CI fake-runtime numbers are physically caused by the supplied earthquake.
 
-The CI test may discover one queryable node/component from the valid `.rst` fixture and then exercise the production `inspect_result()` and `query_result()` APIs on the actual run manifest produced by `AnsysAdapter.run()`.
+The CI test discovers one queryable node/component from the valid `.rst` fixture and then exercises the production `inspect_result()` and `query_result()` APIs on the actual run manifest produced by `AnsysAdapter.run()`.
 
 ### Layer B — opt-in real ANSYS Golden Path
 
@@ -73,6 +73,8 @@ A separate integration harness runs the same Golden Model and earthquake input t
 This layer is the numerical execution acceptance path. It is intentionally opt-in because GitHub-hosted CI does not provide a licensed commercial ANSYS installation.
 
 The real integration path must use production Load Intelligence, ANSYS adapter, run manifest, and Result Intelligence APIs. It must not contain an alternate solver runner or alternate result parser.
+
+PR11 does **not** add a GitHub Actions real-ANSYS workflow. The repository currently has no established licensed/self-hosted ANSYS runner contract. PR11 instead provides a documented local/Windows opt-in harness. A future infrastructure PR may attach that harness to a self-hosted runner without changing Golden Path semantics.
 
 ## Alternatives considered
 
@@ -86,7 +88,7 @@ Rejected. It would leave the most important solver-to-result contract untested. 
 
 ### 3. Commit a handcrafted binary Golden `.rst`
 
-Not preferred. `ansys-mapdl-reader` already installs a valid packaged result fixture used by existing tests. Reusing that dependency fixture avoids adding a large opaque binary to the FEMagent repository. The real ANSYS path remains responsible for numerical Golden Model validation.
+Rejected for PR11. `ansys-mapdl-reader` already installs a valid packaged result fixture used by existing tests. Reusing that dependency fixture avoids adding a large opaque binary to FEMagent. The real ANSYS path remains responsible for Golden Model numerical validation.
 
 ## Golden Model
 
@@ -96,7 +98,7 @@ PR11 adds a small deterministic APDL full-transient structural example under:
 examples/ansys/golden_path/
 ```
 
-The model should be intentionally minimal: one restrained reference node, one response node, a linear spring and concentrated mass, full transient analysis, fixed time stepping, and result output sufficient for nodal displacement queries.
+The model is intentionally minimal: restrained reference node **1**, response node **2**, one linear spring, one concentrated mass, full transient analysis, fixed time stepping, and result output sufficient for nodal displacement history.
 
 Required properties:
 
@@ -105,8 +107,8 @@ Required properties:
 - no existing `ACEL` command;
 - no `TRNOPT,MSUP`;
 - at least one real `SOLVE` command;
-- output controls sufficient for a binary result with nodal displacement history;
-- no external include or dependency that is unnecessary to prove the path.
+- output controls sufficient for a binary result with node 2 X-displacement history;
+- no unnecessary external include/dependency.
 
 The reference model uses a declared `m` / `s` unit convention for the Golden Path. FEMagent still does not infer this from model magnitudes; the integration request must explicitly pass:
 
@@ -162,8 +164,8 @@ The harness performs:
 5. call ANSYS `run()` with the same canonical load and solver options;
 6. require `COMPLETED` and a recorded binary result;
 7. call `inspect_result()` on the returned `runId`;
-8. choose or accept a concrete queryable nodal displacement target;
-9. call `query_result()` with `SUMMARY` and optionally `SERIES`;
+8. query node **2**, X displacement for the real ANSYS path; CI fixture mode may discover a queryable fixture node because the packaged `.rst` is intentionally unrelated to the Golden Model;
+9. call `query_result()` with `SUMMARY` and `SERIES` where available;
 10. emit one structured JSON summary of the end-to-end evidence.
 
 The harness must never guess ANSYS installation paths or model units.
@@ -175,7 +177,7 @@ A new focused Python test must prove the complete deterministic flow from XLSX t
 The test must assert at least:
 
 - XLSX is standardized through production `standardize_load()`;
-- canonical output has `FEMAGENT_LOAD_CSV_V1` semantics and SHA256 provenance;
+- the standardization report says `format == "FEMAGENT_LOAD_CSV_V1"` and records source/output SHA256;
 - ANSYS preflight is `READY`;
 - build-only does not execute the requested solve;
 - real-run staging contains `femagent_load_table.txt` and `femagent_load.mac`;
@@ -198,13 +200,20 @@ The opt-in real integration harness is successful only when:
 - MAPDL returns success;
 - a fresh binary result is recorded by the run manifest;
 - Result Intelligence verifies the result hash;
-- the Golden response node exposes X displacement;
+- Golden response node **2** exposes X displacement;
 - the query contains at least two result samples for the transient analysis;
 - the absolute peak displacement is finite and non-zero;
-- changing the earthquake amplitude in a second run changes the `executionInputFingerprint` and `caseFingerprint`;
-- for the real solver path, the changed earthquake also changes the queried displacement response beyond a small deterministic tolerance chosen in the implementation plan.
+- changing the earthquake amplitude by a factor of **2.0** in a second run changes the `executionInputFingerprint` and `caseFingerprint`;
+- the second real solver run also changes the queried node-2 X-displacement absolute peak according to:
 
-The exact numerical peak value is not frozen in PR11 because solver-version/platform differences may affect floating-point details. PR11 freezes engineering invariants and causality instead of one brittle decimal answer.
+```text
+abs(peak_scaled - peak_base) > max(
+    1e-12,
+    1e-6 * max(abs(peak_base), abs(peak_scaled))
+)
+```
+
+This is a causality/change check, not an assertion of exact linear scaling. The exact numerical peak value is not frozen in PR11 because solver-version/platform differences may affect floating-point details.
 
 ## CI and workflow strategy
 
@@ -222,9 +231,7 @@ health smoke
 
 The new deterministic Golden Path test is part of `python -m pytest`, so it is mandatory on every PR.
 
-PR11 may add an opt-in real-ANSYS integration entry point, but it must not make the normal GitHub-hosted CI depend on ANSYS licensing or installation.
-
-If a GitHub Actions real-ANSYS workflow is added, it must be manually triggered or self-hosted and fail closed when runtime configuration is absent; absence of that commercial environment must not make normal CI red.
+The real ANSYS harness is opt-in and local/self-hosted only in PR11. Normal GitHub-hosted CI has no ANSYS licensing or installation dependency.
 
 ## Result and unit semantics
 
@@ -265,11 +272,12 @@ PR11 explicitly excludes:
 - rotational excitation;
 - new ANSYS result quantities beyond the existing Result Intelligence contract;
 - automatic ANSYS installation discovery;
-- a second solver execution abstraction.
+- a second solver execution abstraction;
+- GitHub-hosted or self-hosted real-ANSYS CI infrastructure setup.
 
 ## Files expected to change
 
-Likely additions/modifications are intentionally narrow:
+Additions/modifications are intentionally narrow:
 
 ```text
 examples/ansys/golden_path/model.inp
@@ -277,7 +285,6 @@ examples/ansys/golden_path/README.md
 examples/ansys/golden_path/run_golden_path.py
 tests/python/test_ansys_golden_path.py
 docs/verification/pr11-ansys-golden-path.md
-.github/workflows/...                 # only if an opt-in real-ANSYS workflow is justified
 ```
 
 Existing production modules should only change when the end-to-end test exposes a genuine missing contract. PR11 should prefer composition over refactoring.
@@ -287,7 +294,7 @@ Existing production modules should only change when the end-to-end test exposes 
 PR11 is complete when:
 
 1. the mandatory deterministic CI Golden Path runs from generated XLSX through production Load Intelligence, ANSYS adapter, run provenance, production Result Intelligence inspection, and production result query;
-2. the real-ANSYS example/harness can run the same path with `FEM_ANSYS_EXECUTABLE` and explicit model units;
+2. the real-ANSYS example/harness can run the same path with `FEM_ANSYS_EXECUTABLE`, explicit model units, fixed node-2 X response, and the defined amplitude-change causality check;
 3. documentation clearly distinguishes fake-runtime protocol evidence from real-ANSYS numerical evidence;
 4. all existing repository gates remain green;
 5. final diff review confirms no source overwrite, no unit guessing, no fake numerical claim, no commercial-runtime hard dependency in normal CI, and no PR11 scope creep.
