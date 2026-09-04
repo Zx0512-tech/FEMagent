@@ -6,6 +6,16 @@ export type FemSolverDisplayName<S extends FemSolverKey = FemSolverKey> =
 export type FemSolverExecutionMode<S extends FemSolverKey = FemSolverKey> =
   S extends "ansys" ? "ISOLATED_PROCESS" : "ISOLATED_WORKER_PROCESS";
 
+export interface FemAnsysModelUnits {
+  length: "m" | "cm" | "mm";
+  time: "s" | "ms";
+}
+
+export interface FemSolverOptions {
+  modelUnits?: FemAnsysModelUnits;
+  [key: string]: unknown;
+}
+
 export interface FemSolverStatus<S extends FemSolverKey = FemSolverKey> {
   schemaVersion: "1.0";
   kind: "solver_status";
