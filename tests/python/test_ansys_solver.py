@@ -20,7 +20,7 @@ def _model(tmp_path: Path, *, with_solve: bool = False) -> str:
     return "main.txt"
 
 
-def _fake_ansys_runtime(tmp_path: Path) -> Path:
+def _fake_ansys_runtime(tmp_path: Path, *, write_result: bool = False) -> Path:
     executable = tmp_path / "ansys_fake"
     executable.write_text(
         "#!/usr/bin/env python3\n"
@@ -29,12 +29,16 @@ def _fake_ansys_runtime(tmp_path: Path) -> Path:
         "args = sys.argv[1:]\n"
         "input_path = Path(args[args.index('-i') + 1]).resolve()\n"
         "output_path = Path(args[args.index('-o') + 1]).resolve()\n"
+        "job_name = args[args.index('-j') + 1]\n"
         "text = input_path.read_text(encoding='utf-8')\n"
         "active = [line.strip().upper() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('!')]\n"
         "if input_path.name == 'build_only.inp' and any(line.startswith('/SOLU') or line.startswith('SOLVE') for line in active):\n"
         "    print('build-only input attempted solution', file=sys.stderr)\n"
         "    raise SystemExit(9)\n"
         "output_path.write_text('FAKE ANSYS OK\\n' + input_path.name + '\\n', encoding='utf-8')\n"
+        f"write_result = {write_result!r}\n"
+        "if write_result:\n"
+        "    (Path.cwd() / f'{job_name}.rst').write_bytes(b'FEMagent fake RST')\n"
         "(Path.cwd() / 'fake_runtime_cwd.txt').write_text(str(Path.cwd()), encoding='utf-8')\n",
         encoding="utf-8",
     )
@@ -138,7 +142,7 @@ def test_ansys_build_only_stages_sanitized_input_without_solving(tmp_path: Path,
 
 
 def test_ansys_real_run_executes_staged_bundle_and_records_provenance(tmp_path: Path, monkeypatch) -> None:
-    executable = _fake_ansys_runtime(tmp_path)
+    executable = _fake_ansys_runtime(tmp_path, write_result=True)
     monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
     model_path = _model(tmp_path, with_solve=True)
 
@@ -157,6 +161,10 @@ def test_ansys_real_run_executes_staged_bundle_and_records_provenance(tmp_path: 
     assert (tmp_path / result["outputs"]["solverLog"]).is_file()
     assert (tmp_path / result["outputs"]["runtimeOutput"]).is_file()
     assert (tmp_path / result["outputs"]["runManifest"]).is_file()
+    binary_result = tmp_path / result["outputs"]["binaryResult"]
+    assert binary_result.is_file()
+    assert binary_result.suffix == ".rst"
+    assert len(result["outputs"]["binaryResultSha256"]) == 64
     runtime_cwd = staged_root / "fake_runtime_cwd.txt"
     assert runtime_cwd.is_file()
     assert Path(runtime_cwd.read_text(encoding="utf-8")).resolve() == staged_root.resolve()
