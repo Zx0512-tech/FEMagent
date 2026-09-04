@@ -52,6 +52,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   kind: "solver_run";
   runId: string;
   caseFingerprint: string;
+  executionInputFingerprint?: string | null;
   status: "COMPLETED";
   solver: {
     name: FemSolverDisplayName<S>;
@@ -64,6 +65,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   };
   model: Record<string, unknown>;
   load: Record<string, unknown>;
+  injection?: Record<string, unknown>;
   analysis: Record<string, unknown>;
   summary: Record<string, unknown>;
   outputs: Record<string, string>;
