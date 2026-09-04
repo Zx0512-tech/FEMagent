@@ -10,7 +10,7 @@ run(model_path, load_path?) -> real solver execution and structured run manifest
 
 `load_path` is optional at the abstract interface because some solver-native model bundles own their load and analysis definition. Concrete adapters remain responsible for enforcing a load when their model contract requires one.
 
-The Agent chooses when to use the tools. The adapter and solver determine engineering facts and numerical results.
+The Agent chooses when to use the tools. The adapter and solver determine engineering facts and numerical results. Result Intelligence reads recorded numerical artifacts after execution; it does not extend `SolverAdapter` into a query API.
 
 ## OpenSeesPy adapter
 
@@ -33,7 +33,7 @@ units: m / N / kg / s
 
 This path **requires** an external canonical `FEMAGENT_LOAD_CSV_V1` load. Omitting `loadPath` is rejected by the concrete OpenSees adapter even though the abstract SolverAdapter parameter is optional.
 
-The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and returns deterministic response artifacts including peak displacement evidence.
+The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and records `response.csv`/summary artifacts. Their controlled schema establishes SI response units and seconds, so PR9 Result Intelligence can query the recorded displacement, velocity, and acceleration deterministically.
 
 ### OpenSees Python Model Bundle
 
@@ -65,9 +65,11 @@ Real execution stages the resolved bundle under:
 
 and executes the staged entrypoint rather than the user's original source tree.
 
+Arbitrary OpenSees Python scripts do not automatically receive a FEMagent standard recorder. If a run did not produce the controlled response schema, Result Intelligence reports `LIMITED` rather than inventing a response channel.
+
 ## ANSYS MAPDL adapter
 
-PR8 adds ANSYS MAPDL as FEMagent's second real SolverAdapter while preserving the same generic tool surface.
+ANSYS MAPDL is FEMagent's second real SolverAdapter while preserving the same generic tool surface.
 
 ### Runtime discovery
 
@@ -89,7 +91,7 @@ Supported model/script member suffixes are:
 
 TXT/DAT entrypoints require deterministic APDL/CDB content signals before they are treated as models. `/INPUT` and `*USE` references are recursively resolved inside the workspace and included in the bundle fingerprint.
 
-Missing dependencies, workspace escapes, and PR8-unsupported absolute includes block preflight.
+Missing dependencies, workspace escapes, and unsupported absolute includes block preflight.
 
 ### Build-only preflight
 
@@ -108,7 +110,7 @@ A successful build-only inspection is required for preflight `READY`.
 
 ### Script-managed loads
 
-PR8 does not yet inject arbitrary canonical load files into APDL. The ANSYS Model Bundle owns its load and analysis commands.
+The current ANSYS adapter does not inject arbitrary canonical load files into APDL. The ANSYS Model Bundle owns its load and analysis commands.
 
 When `loadPath` is provided, its path and SHA256 are recorded for provenance and the preflight/run contract reports `injected: false`. The Agent must not claim that such a file affected the solve.
 
@@ -132,13 +134,24 @@ The run manifest records:
 - configured runtime identity,
 - staged bundle root,
 - MAPDL output,
-- solver log and hashes.
+- solver log and hashes,
+- the staged job's `.rst`, `.rth`, `.rfl`, or `.rmg` path/SHA when such a binary result exists.
 
 ### Result boundary
 
-PR8 does **not** yet parse ANSYS RST/output into engineering result quantities. `COMPLETED` means the configured MAPDL process returned successfully and execution artifacts were captured; it is not proof of displacement/stress/reaction/convergence values.
+`COMPLETED` means the configured MAPDL process returned successfully and execution artifacts were captured. Numerical engineering claims still require Result Intelligence.
 
-Those claims belong to the later Result Intelligence layer.
+PR9 reads a recorded MAPDL binary result through the optional extra:
+
+```text
+pip install -e ".[ansys-results]"
+```
+
+which currently pins `ansys-mapdl-reader==0.56.0`. V1 can query nodal displacement, velocity, acceleration, and reaction force when those result records exist.
+
+MAPDL's model unit system is not inferred from the binary result. Result Intelligence therefore returns `unit: null` for ANSYS physical quantities unless separate deterministic model/project evidence establishes units. Result-set abscissa values likewise remain `SOLVER_NATIVE_RESULT_ABSCISSA` with an unknown unit instead of being silently labelled seconds.
+
+If no binary result was recorded, the run remains inspectable but numerical result integrity is `LIMITED`. FEMagent does not parse `ansys.out` or `solver.log` into numerical response truth.
 
 ## Permission boundary
 
@@ -146,6 +159,8 @@ Those claims belong to the later Result Intelligence layer.
 
 `fem_solver_run` is an EXECUTION action. The Pi extension requires user approval before the real solver starts; modes without a usable confirmation path fail closed rather than silently executing.
 
+`fem_result_inspect` and `fem_result_query` are SAFE read-only operations over recorded run artifacts. They do not need execution permission because they never invoke a solver or rewrite source models.
+
 ## Adapter design rule
 
-Future backends should extend the same status/preflight/run boundary instead of creating task-specific solver tools. Solver-specific requirements belong inside adapters; the agent-facing contract stays small and composable.
+Future backends should extend the same status/preflight/run boundary instead of creating task-specific solver tools. Solver-specific execution requirements belong inside adapters; solver-specific result decoding belongs behind Result Intelligence. The agent-facing contract stays small and composable.
