@@ -8,6 +8,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from fem_core.ansys_result_reader import describe_ansys_binary_result, query_ansys_nodal_result
 from fem_core.errors import FemCoreError
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 
@@ -38,6 +39,7 @@ _COMPONENT_ALIASES = {
     "U3": "Z",
     "3": "Z",
 }
+_ANSYS_DOF_TO_AXIS = {"UX": "X", "UY": "Y", "UZ": "Z"}
 _MAX_RESULT_SERIES_SAMPLES = 5000
 
 
@@ -210,7 +212,6 @@ def _read_open_sees_response(path: Path) -> dict[str, list[float]]:
 def _open_sees_result_manifest(
     workspace: Path,
     manifest: dict[str, Any],
-    artifacts: list[dict[str, Any]],
 ) -> dict[str, Any]:
     outputs = manifest["outputs"]
     response_path = outputs.get("responseCsv")
@@ -240,7 +241,6 @@ def _open_sees_result_manifest(
             "INVALID_RESULT_SERIES",
             "Controlled OpenSees response is missing its recorded node/DOF identity",
         )
-    sample_count = len(series["time_s"])
     capabilities = [
         {
             "quantity": "DISPLACEMENT",
@@ -272,13 +272,67 @@ def _open_sees_result_manifest(
         "abscissa": {
             "semantic": "TIME",
             "unit": "s",
-            "sampleCount": sample_count,
+            "sampleCount": len(series["time_s"]),
             "start": series["time_s"][0],
             "end": series["time_s"][-1],
         },
         "queryCapabilities": capabilities,
         "warnings": warnings,
         "observations": summary,
+    }
+
+
+def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    outputs = manifest["outputs"]
+    binary_path = outputs.get("binaryResult")
+    summary = manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {}
+    if not isinstance(binary_path, str):
+        return {
+            "integrityStatus": "LIMITED",
+            "abscissa": None,
+            "queryCapabilities": [],
+            "warnings": [
+                {
+                    "code": "ANSYS_BINARY_RESULT_NOT_RECORDED",
+                    "message": "This ANSYS run did not record a MAPDL binary result artifact",
+                }
+            ],
+            "observations": summary,
+        }
+
+    binary_file = resolve_workspace_file(workspace, binary_path)
+    description = describe_ansys_binary_result(binary_file)
+    axes = [
+        _ANSYS_DOF_TO_AXIS[dof]
+        for dof in description["dofLabels"]
+        if dof in _ANSYS_DOF_TO_AXIS
+    ]
+    capabilities = [
+        {
+            "quantity": quantity,
+            "component": axis,
+            "target": {"type": "NODE", "selection": "RECORDED_NODE_IDS"},
+            "unit": None,
+            "referenceFrame": "SOLVER_NATIVE",
+            "sourceArtifact": workspace_relative_path(workspace, binary_file),
+        }
+        for quantity in description["quantities"]
+        for axis in axes
+    ]
+    return {
+        "integrityStatus": "VALID",
+        "abscissa": description["abscissa"],
+        "queryCapabilities": capabilities,
+        "warnings": [
+            {
+                "code": "ANSYS_RESULT_UNIT_SYSTEM_NOT_DECLARED",
+                "message": (
+                    "MAPDL binary results are solver-native; PR9 does not infer physical units "
+                    "or interpret result-set abscissa values as seconds"
+                ),
+            }
+        ],
+        "observations": {**summary, "binaryResult": description},
     }
 
 
@@ -289,7 +343,9 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
     solver_name = str(solver["name"]).upper()
 
     if solver_name == "OPENSEESPY":
-        details = _open_sees_result_manifest(workspace, manifest, artifacts)
+        details = _open_sees_result_manifest(workspace, manifest)
+    elif solver_name == "ANSYS":
+        details = _ansys_result_manifest(workspace, manifest)
     else:
         details = {
             "integrityStatus": "LIMITED",
@@ -298,7 +354,7 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
             "warnings": [
                 {
                     "code": "RESULT_READER_NOT_AVAILABLE",
-                    "message": f"PR9 result reader is not yet available for solver {solver_name}",
+                    "message": f"PR9 result reader is not available for solver {solver_name}",
                 }
             ],
             "observations": manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {},
@@ -393,29 +449,17 @@ def _matching_capability(result_manifest: dict[str, Any], query: dict[str, Any])
     )
 
 
-def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[str, Any]:
-    normalized = _validated_query(query)
-    result_manifest = inspect_result(workspace, run_ref)
-    capability = _matching_capability(result_manifest, normalized)
-    _, run_manifest = _load_run_manifest(workspace, run_ref)
-    if str(run_manifest["solver"]["name"]).upper() != "OPENSEESPY":
-        raise FemCoreError(
-            "RESULT_SERIES_UNAVAILABLE",
-            "The requested solver result reader does not expose this series yet",
-        )
-    response_path = run_manifest["outputs"].get("responseCsv")
-    if not isinstance(response_path, str):
-        raise FemCoreError(
-            "RESULT_SERIES_UNAVAILABLE",
-            "This OpenSees run did not record a standard response series",
-        )
-    response_file = resolve_workspace_file(workspace, response_path)
-    series = _read_open_sees_response(response_file)
-    source_column = str(capability["sourceColumn"])
-    values = series[source_column]
-    abscissa = series["time_s"]
-
-    response: dict[str, Any] = {
+def _base_query_response(
+    result_manifest: dict[str, Any],
+    normalized: dict[str, Any],
+    *,
+    unit: str | None,
+    reference_frame: str,
+    abscissa_semantic: str,
+    abscissa_unit: str | None,
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    return {
         "schemaVersion": "1.0",
         "kind": "result_query",
         "runId": result_manifest["runId"],
@@ -425,14 +469,26 @@ def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[s
         "target": normalized["target"],
         "component": normalized["component"],
         "operation": normalized["operation"],
-        "unit": capability.get("unit"),
-        "referenceFrame": capability.get("referenceFrame"),
-        "abscissa": {"semantic": "TIME", "unit": "s"},
-        "source": {
-            "artifact": workspace_relative_path(workspace, response_file),
-            "column": source_column,
-        },
+        "unit": unit,
+        "referenceFrame": reference_frame,
+        "abscissa": {"semantic": abscissa_semantic, "unit": abscissa_unit},
+        "source": source,
     }
+
+
+def _attach_summary_or_series(
+    response: dict[str, Any],
+    normalized: dict[str, Any],
+    *,
+    abscissa: list[float],
+    values: list[float],
+) -> dict[str, Any]:
+    if not values or len(abscissa) != len(values):
+        raise FemCoreError(
+            "INVALID_RESULT_SERIES",
+            "Result query requires matching non-empty abscissa and value series",
+            details={"abscissaCount": len(abscissa), "valueCount": len(values)},
+        )
     if normalized["operation"] == "SUMMARY":
         peak_index = max(range(len(values)), key=lambda index: abs(values[index]))
         response["summary"] = {
@@ -458,3 +514,91 @@ def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[s
         "total": len(values),
     }
     return response
+
+
+def _query_open_sees(
+    workspace: Path,
+    run_manifest: dict[str, Any],
+    result_manifest: dict[str, Any],
+    normalized: dict[str, Any],
+) -> dict[str, Any]:
+    capability = _matching_capability(result_manifest, normalized)
+    response_path = run_manifest["outputs"].get("responseCsv")
+    if not isinstance(response_path, str):
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "This OpenSees run did not record a standard response series",
+        )
+    response_file = resolve_workspace_file(workspace, response_path)
+    series = _read_open_sees_response(response_file)
+    source_column = str(capability["sourceColumn"])
+    response = _base_query_response(
+        result_manifest,
+        normalized,
+        unit=capability.get("unit"),
+        reference_frame=str(capability.get("referenceFrame")),
+        abscissa_semantic="TIME",
+        abscissa_unit="s",
+        source={
+            "artifact": workspace_relative_path(workspace, response_file),
+            "column": source_column,
+        },
+    )
+    return _attach_summary_or_series(
+        response,
+        normalized,
+        abscissa=series["time_s"],
+        values=series[source_column],
+    )
+
+
+def _query_ansys(
+    workspace: Path,
+    run_manifest: dict[str, Any],
+    result_manifest: dict[str, Any],
+    normalized: dict[str, Any],
+) -> dict[str, Any]:
+    binary_path = run_manifest["outputs"].get("binaryResult")
+    if not isinstance(binary_path, str):
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "This ANSYS run did not record a MAPDL binary result artifact",
+        )
+    binary_file = resolve_workspace_file(workspace, binary_path)
+    data = query_ansys_nodal_result(
+        binary_file,
+        quantity=normalized["quantity"],
+        node_id=normalized["target"]["id"],
+        component=normalized["component"],
+    )
+    response = _base_query_response(
+        result_manifest,
+        normalized,
+        unit=data["unit"],
+        reference_frame=data["referenceFrame"],
+        abscissa_semantic=data["abscissaSemantic"],
+        abscissa_unit=data["abscissaUnit"],
+        source={"artifact": workspace_relative_path(workspace, binary_file)},
+    )
+    return _attach_summary_or_series(
+        response,
+        normalized,
+        abscissa=data["abscissaValues"],
+        values=data["values"],
+    )
+
+
+def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[str, Any]:
+    normalized = _validated_query(query)
+    result_manifest = inspect_result(workspace, run_ref)
+    _, run_manifest = _load_run_manifest(workspace, run_ref)
+    solver_name = str(run_manifest["solver"]["name"]).upper()
+    if solver_name == "OPENSEESPY":
+        return _query_open_sees(workspace, run_manifest, result_manifest, normalized)
+    if solver_name == "ANSYS":
+        return _query_ansys(workspace, run_manifest, result_manifest, normalized)
+    raise FemCoreError(
+        "RESULT_SERIES_UNAVAILABLE",
+        "The requested solver result reader does not expose this series",
+        details={"solver": solver_name},
+    )
