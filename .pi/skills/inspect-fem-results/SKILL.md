@@ -12,7 +12,7 @@ Use this Skill when answering questions about numerical response from a complete
 6. If inspection is `LIMITED`, explain which standardized result evidence is unavailable. `LIMITED` never means zero displacement, zero force, or a successful engineering check.
 7. For the controlled OpenSees response contract, reported `m`, `m/s`, `m/s2`, and `s` are deterministic because the recorder schema defines them.
 8. For ANSYS MAPDL binary results, preserve `unit: null` and solver-native abscissa semantics unless separate deterministic project/model evidence establishes units. Never infer SI from value magnitude, common practice, or solver defaults.
-9. Node/component facts are not engineering-role facts. A result at node 36 does not by itself prove that node 36 is a tower base, bearing, girder end, or damper location. Resolve engineering role to node IDs through model/project evidence first.
+9. Node/component facts are not engineering-role facts. A result at a recorded node does not by itself prove that the node is a tower base, bearing, girder end, or damper location. Resolve engineering role to node IDs through model/project evidence first.
 10. When a requested channel is absent, report it as unavailable rather than substituting another node, component, quantity, log value, or LLM estimate.
 
 ## Evidence ladder
