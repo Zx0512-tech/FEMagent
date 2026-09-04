@@ -70,7 +70,7 @@ def _resolve_run_manifest(workspace: Path, run_ref: str) -> Path:
     else:
         candidate = _workspace_candidate(workspace, run_ref)
         if candidate.is_dir():
-            candidate = candidate / "run_manifest.json"
+            candidate = _workspace_candidate(workspace, str(candidate / "run_manifest.json"))
     if not candidate.exists():
         raise FemCoreError(
             "RUN_MANIFEST_NOT_FOUND",
