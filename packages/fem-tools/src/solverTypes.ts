@@ -6,6 +6,16 @@ export type FemSolverDisplayName<S extends FemSolverKey = FemSolverKey> =
 export type FemSolverExecutionMode<S extends FemSolverKey = FemSolverKey> =
   S extends "ansys" ? "ISOLATED_PROCESS" : "ISOLATED_WORKER_PROCESS";
 
+export interface FemAnsysModelUnits {
+  length: "m" | "cm" | "mm";
+  time: "s" | "ms";
+}
+
+export interface FemSolverOptions {
+  modelUnits?: FemAnsysModelUnits;
+  [key: string]: unknown;
+}
+
 export interface FemSolverStatus<S extends FemSolverKey = FemSolverKey> {
   schemaVersion: "1.0";
   kind: "solver_status";
@@ -42,6 +52,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   kind: "solver_run";
   runId: string;
   caseFingerprint: string;
+  executionInputFingerprint?: string | null;
   status: "COMPLETED";
   solver: {
     name: FemSolverDisplayName<S>;
@@ -54,6 +65,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   };
   model: Record<string, unknown>;
   load: Record<string, unknown>;
+  injection?: Record<string, unknown>;
   analysis: Record<string, unknown>;
   summary: Record<string, unknown>;
   outputs: Record<string, string>;

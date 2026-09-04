@@ -4,11 +4,11 @@ FEMagent keeps solver execution behind a narrow deterministic `SolverAdapter` in
 
 ```text
 status() -> runtime availability and declared capabilities
-preflight(model_path, load_path?) -> compatibility/safety checks without requested solve
-run(model_path, load_path?) -> real solver execution and structured run manifest
+preflight(model_path, load_path?, solver_options?) -> compatibility/safety checks without requested solve
+run(model_path, load_path?, solver_options?) -> real solver execution and structured run manifest
 ```
 
-`load_path` is optional at the abstract interface because some solver-native model bundles own their load and analysis definition. Concrete adapters remain responsible for enforcing a load when their model contract requires one.
+`load_path` and `solver_options` are optional at the abstract interface because some solver-native model bundles own their load/analysis definition and solver-specific execution settings differ. Concrete adapters remain responsible for enforcing required inputs and rejecting unsupported options rather than silently ignoring them.
 
 The Agent chooses when to use the tools. The adapter and solver determine engineering facts and numerical results. Result Intelligence reads recorded numerical artifacts after execution; it does not extend `SolverAdapter` into a query API.
 
@@ -33,7 +33,9 @@ units: m / N / kg / s
 
 This path **requires** an external canonical `FEMAGENT_LOAD_CSV_V1` load. Omitting `loadPath` is rejected by the concrete OpenSees adapter even though the abstract SolverAdapter parameter is optional.
 
-The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and records `response.csv`/summary artifacts. Their controlled schema establishes SI response units and seconds, so PR9 Result Intelligence can query the recorded displacement, velocity, and acceleration deterministically.
+The accepted Golden Path load is one earthquake `UNIFORM_EXCITATION` acceleration channel in `m/s2`, with a supported X-direction alias and a strictly increasing uniform time axis. The transient solve uses the controlled OpenSees SDOF implementation and records `response.csv`/summary artifacts. Their controlled schema establishes SI response units and seconds, so Result Intelligence can query the recorded displacement, velocity, and acceleration deterministically.
+
+ANSYS-only `solverOptions.modelUnits` are not accepted by OpenSees in PR10. Non-empty unsupported solver options fail closed at the bridge boundary rather than being ignored or reinterpreted.
 
 ### OpenSees Python Model Bundle
 
@@ -95,7 +97,7 @@ Missing dependencies, workspace escapes, and unsupported absolute includes block
 
 ### Build-only preflight
 
-`fem_solver_preflight` with `solver: ansys` performs:
+`fem_solver_preflight` with `solver: ansys` performs the common checks:
 
 ```text
 static APDL safety
@@ -104,15 +106,90 @@ static APDL safety
 + staged sanitized build-only MAPDL run
 ```
 
-The build-only staged copy stops before `/SOLU`, `SOLVE`, or postprocessing. The user's source files are never rewritten.
+When a supported canonical external load is supplied, preflight additionally performs:
+
+```text
+canonical load validation
++ explicit ANSYS model-unit validation/conversion
++ transient hook/conflict inspection
++ deterministic table/macro generation
++ build-only validation of generated load input
+```
+
+The build-only staged copy must not advance the requested solution. The user's source files are never rewritten.
 
 A successful build-only inspection is required for preflight `READY`.
 
-### Script-managed loads
+### Load modes
 
-The current ANSYS adapter does not inject arbitrary canonical load files into APDL. The ANSYS Model Bundle owns its load and analysis commands.
+ANSYS has two explicit load modes.
 
-When `loadPath` is provided, its path and SHA256 are recorded for provenance and the preflight/run contract reports `injected: false`. The Agent must not claim that such a file affected the solve.
+#### Model-script-managed
+
+When `loadPath` is omitted, the Model Bundle owns its existing load and analysis commands and the preflight/run manifest reports:
+
+```json
+{"mode": "MODEL_SCRIPT_MANAGED"}
+```
+
+No PR10 model-unit declaration is required for this path.
+
+#### PR10 canonical uniform excitation
+
+When `loadPath` is supplied, ANSYS does not silently fall back to the old provenance-only behavior. It attempts the supported canonical injection contract and fails closed if the load or required context is invalid.
+
+PR10 accepts exactly one `FEMAGENT_LOAD_CSV_V1` channel with:
+
+- `load_kind = EARTHQUAKE`
+- `application_type = UNIFORM_EXCITATION`
+- `quantity = ACCELERATION`
+- canonical physical unit `m/s2`
+- one global X/Y/Z component (supported aliases normalize to X/Y/Z)
+- no explicit node/element target
+- finite samples with strictly increasing `time_s`
+
+Because MAPDL is unitless, the caller must provide:
+
+```json
+{
+  "solverOptions": {
+    "modelUnits": {
+      "length": "m | cm | mm",
+      "time": "s | ms"
+    }
+  }
+}
+```
+
+FEMagent does not infer these units from coordinates, materials, filenames, magnitudes, or engineering convention.
+
+Accepted loads are converted deterministically into model time/acceleration units and generate two staged artifacts:
+
+```text
+femagent_load_table.txt
+femagent_load.mac
+```
+
+The macro uses `*DIM`, `*TREAD`, and component-specific `ACEL`.
+
+### Injection safety
+
+Canonical injection requires static evidence of:
+
+1. exactly one explicit `ANTYPE,TRANS` hook;
+2. no explicit `TRNOPT,MSUP`;
+3. no existing active `ACEL` conflict;
+4. at least one solution command.
+
+For real execution FEMagent inserts:
+
+```text
+/INPUT,'femagent_load','mac'
+```
+
+immediately after the validated `ANTYPE,TRANS` line in the **staged copy only**. Source Model Bundle bytes remain unchanged.
+
+Preflight reports a validated plan (`injectionStatus: VALIDATED_FOR_STAGING`) but does not claim real consumption. The real run records `injected: true` plus hook/artifact evidence.
 
 ### Staged real execution
 
@@ -124,7 +201,9 @@ After preflight `READY` and execution permission, `fem_solver_run` copies the co
 
 MAPDL runs with the staged bundle working directory as its CWD so relative `/INPUT` behavior remains inside the staged provenance boundary.
 
-The run manifest records:
+For canonical injection, generated artifacts are created in the staged working directory and only the staged hook file is modified.
+
+The run manifest records the common provenance:
 
 - `runId`,
 - `caseFingerprint`,
@@ -137,11 +216,22 @@ The run manifest records:
 - solver log and hashes,
 - the staged job's `.rst`, `.rth`, `.rfl`, or `.rmg` path/SHA when such a binary result exists.
 
+A canonical run additionally records:
+
+- canonical source load path/SHA256 and channel metadata;
+- declared `modelUnits` and conversion factors;
+- generated table/macro paths and SHA256;
+- injection hook path/line/command;
+- `injected: true`;
+- `executionInputFingerprint`.
+
+The execution-input fingerprint binds Model Bundle identity, canonical load identity, model-unit mapping, generated artifact hashes, and hook identity. `caseFingerprint` incorporates this execution-input identity.
+
 ### Result boundary
 
 `COMPLETED` means the configured MAPDL process returned successfully and execution artifacts were captured. Numerical engineering claims still require Result Intelligence.
 
-PR9 reads a recorded MAPDL binary result through the optional extra:
+ANSYS binary results are read through the optional extra:
 
 ```text
 pip install -e ".[ansys-results]"
@@ -149,13 +239,13 @@ pip install -e ".[ansys-results]"
 
 which currently pins `ansys-mapdl-reader==0.56.0`. V1 can query nodal displacement, velocity, acceleration, and reaction force when those result records exist.
 
-MAPDL's model unit system is not inferred from the binary result. Result Intelligence therefore returns `unit: null` for ANSYS physical quantities unless separate deterministic model/project evidence establishes units. Result-set abscissa values likewise remain `SOLVER_NATIVE_RESULT_ABSCISSA` with an unknown unit instead of being silently labelled seconds.
+MAPDL result units are not inferred from numerical magnitude. Result Intelligence returns `unit: null` when the model/result unit system is not independently proven for the queried result, instead of silently labelling values as SI. Result-set abscissa values likewise remain `SOLVER_NATIVE_RESULT_ABSCISSA` with an unknown unit unless separate evidence establishes their interpretation.
 
 If no binary result was recorded, the run remains inspectable but numerical result integrity is `LIMITED`. FEMagent does not parse `ansys.out` or `solver.log` into numerical response truth.
 
 ## Permission boundary
 
-`fem_solver_status` and `fem_solver_preflight` are inspection operations. Solver-specific preflight may perform controlled build-only model construction, but it must not intentionally advance the requested analysis.
+`fem_solver_status` and `fem_solver_preflight` are inspection operations. Solver-specific preflight may perform controlled build-only model/input construction, but it must not intentionally advance the requested analysis.
 
 `fem_solver_run` is an EXECUTION action. The Pi extension requires user approval before the real solver starts; modes without a usable confirmation path fail closed rather than silently executing.
 

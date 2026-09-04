@@ -1,10 +1,11 @@
 # Load Intelligence V1
 
-Load Intelligence separates three concerns:
+Load Intelligence separates four concerns:
 
 1. deterministic file inspection,
 2. non-binding mapping suggestion,
-3. deterministic standardization from an explicit mapping.
+3. deterministic standardization from an explicit mapping,
+4. later solver-specific application of the canonical artifact.
 
 ## Supported source formats
 
@@ -74,11 +75,31 @@ Supported deterministic unit conversions:
 
 The tool rejects missing/non-numeric mapped values, non-finite scale factors, unknown columns, unsupported units, and non-increasing time axes.
 
-Generated files default to `.femagent/generated/loads/` and include SHA256 in the returned standardization report. They are precursors to future Artifact/Evidence registration; PR4 does not yet introduce persistence.
+Generated files default to `.femagent/generated/loads/` and include SHA256 in the returned standardization report. They are deterministic solver-input precursors; standardization itself does not prove a solver consumed the load.
+
+## Solver application boundary
+
+A canonical CSV is solver-neutral until a concrete SolverAdapter accepts it.
+
+PR10 adds the first ANSYS external-load application contract. ANSYS accepts one canonical global earthquake acceleration channel when all of the following are true:
+
+- `load_kind = EARTHQUAKE`
+- `application_type = UNIFORM_EXCITATION`
+- `quantity = ACCELERATION`
+- canonical unit `m/s2`
+- one X/Y/Z global component
+- no explicit node/element target
+- explicit `solverOptions.modelUnits.length` and `.time`
+
+ANSYS model units are not load-file metadata and are never inferred from the canonical record. MAPDL is unitless, so FEMagent requires deterministic model/project/user evidence before converting canonical SI acceleration into model units.
+
+For a supported ANSYS load, preflight validates the transient APDL hook and generated table/macro artifacts without advancing the requested solve. A real run injects only the staged Model Bundle and records load/artifact hashes plus an execution-input fingerprint.
+
+OpenSees keeps its existing controlled load contracts. ANSYS-specific `solverOptions.modelUnits` are not silently reused by OpenSees.
 
 ## Multi-channel support
 
-V1 supports a common time axis with multiple scalar channels in canonical long form. Each channel explicitly declares:
+V1 standardization supports a common time axis with multiple scalar channels in canonical long form. Each channel explicitly declares:
 
 - value column
 - application type
@@ -88,4 +109,4 @@ V1 supports a common time axis with multiple scalar channels in canonical long f
 - source unit
 - scale
 
-`NODAL_FORCE_MATRIX` traffic canonicalization remains deferred because it requires a separate deterministic column-to-node mapping artifact.
+Standardization support does not imply application support. `NODAL_FORCE_MATRIX` traffic canonicalization/application, ANSYS multi-channel earthquake application, and automatic structural target selection remain deferred.

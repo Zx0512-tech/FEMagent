@@ -12,17 +12,23 @@ from fem_core.text import decode_engineering_text
 ANSYS_PROCESS_TIMEOUT_S = 120.0
 
 
-def sanitize_apdl_for_build(text: str) -> str:
+def sanitize_apdl_for_build(
+    text: str,
+    *,
+    load_include_command: str | None = None,
+) -> str:
     """Keep preprocessing commands while preventing a requested solution/postprocess stage."""
 
     output: list[str] = []
     for line in text.splitlines():
         command = line.split("!", 1)[0].strip().upper()
         if command.startswith(("/SOLU", "/POST")) or command == "SOLU":
-            output.append(f"! FEMagent build-only stopped before: {line.strip()}")
+            if load_include_command is not None:
+                output.append(load_include_command)
+            output.append("! FEMagent build-only stopped before solution/postprocess stage")
             break
         if command.startswith(("SOLVE", "LSSOLVE", "MSSOLVE", "PSOLVE")):
-            output.append(f"! FEMagent build-only suppressed: {line.strip()}")
+            output.append("! FEMagent build-only suppressed solution command")
             continue
         output.append(line)
     output.extend(["FINISH", "/EXIT,NOSAVE"])
@@ -35,6 +41,8 @@ def stage_ansys_bundle(
     stage_root: Path,
     *,
     sanitize_for_build: bool,
+    load_include_command: str | None = None,
+    load_hook_path: str | None = None,
 ) -> dict[str, Path]:
     root = workspace.resolve()
     stage = stage_root.resolve()
@@ -56,7 +64,17 @@ def stage_ansys_bundle(
         if sanitize_for_build and source.suffix.lower() in ANSYS_BUNDLE_SUFFIXES:
             content = source.read_bytes()
             text, _ = decode_engineering_text(content)
-            destination.write_text(sanitize_apdl_for_build(text), encoding="utf-8")
+            include = (
+                load_include_command
+                if load_include_command is not None
+                and load_hook_path is not None
+                and relative.as_posix() == Path(load_hook_path).as_posix()
+                else None
+            )
+            destination.write_text(
+                sanitize_apdl_for_build(text, load_include_command=include),
+                encoding="utf-8",
+            )
         else:
             shutil.copy2(source, destination)
 

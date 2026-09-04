@@ -40,6 +40,34 @@ def _required_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+def _optional_object(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise FemCoreError(
+            "INVALID_ARGUMENT",
+            f"'{key}' must be a JSON object when provided",
+            details={"field": key},
+        )
+    return value
+
+
+def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | None, dict[str, Any] | None]:
+    solver = _required_text(payload, "solver")
+    model_path = _required_text(payload, "modelPath")
+    load_path = _optional_text(payload, "loadPath")
+    solver_options = _optional_object(payload, "solverOptions")
+    normalized_solver = solver.strip().lower()
+    if normalized_solver in {"opensees", "openseespy"} and solver_options:
+        raise FemCoreError(
+            "UNSUPPORTED_SOLVER_OPTIONS",
+            "OpenSees does not accept ANSYS solverOptions in PR10",
+            details={"solver": solver, "solverOptions": solver_options},
+        )
+    return solver, model_path, load_path, solver_options
+
+
 def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
     request_id = "unknown"
     command = "unknown"
@@ -89,19 +117,37 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
         elif command == "solver.status":
             result = get_solver_adapter(_required_text(payload, "solver")).status()
         elif command == "solver.preflight":
-            adapter = get_solver_adapter(_required_text(payload, "solver"))
-            result = adapter.preflight(
-                workspace,
-                model_path=_required_text(payload, "modelPath"),
-                load_path=_optional_text(payload, "loadPath"),
-            )
+            solver, model_path, load_path, solver_options = _solver_call_arguments(payload)
+            adapter = get_solver_adapter(solver)
+            if solver_options is None:
+                result = adapter.preflight(
+                    workspace,
+                    model_path=model_path,
+                    load_path=load_path,
+                )
+            else:
+                result = adapter.preflight(
+                    workspace,
+                    model_path=model_path,
+                    load_path=load_path,
+                    solver_options=solver_options,
+                )
         elif command == "solver.run":
-            adapter = get_solver_adapter(_required_text(payload, "solver"))
-            result = adapter.run(
-                workspace,
-                model_path=_required_text(payload, "modelPath"),
-                load_path=_optional_text(payload, "loadPath"),
-            )
+            solver, model_path, load_path, solver_options = _solver_call_arguments(payload)
+            adapter = get_solver_adapter(solver)
+            if solver_options is None:
+                result = adapter.run(
+                    workspace,
+                    model_path=model_path,
+                    load_path=load_path,
+                )
+            else:
+                result = adapter.run(
+                    workspace,
+                    model_path=model_path,
+                    load_path=load_path,
+                    solver_options=solver_options,
+                )
         else:
             raise FemCoreError("UNKNOWN_COMMAND", "Unknown FEM engineering command", details={"command": command})
         return success_envelope(request_id=request_id, command=command, result=result)

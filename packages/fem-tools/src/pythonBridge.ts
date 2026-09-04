@@ -18,6 +18,7 @@ import type {
 } from "./resultTypes.js";
 import type {
   FemSolverKey,
+  FemSolverOptions,
   FemSolverPreflight,
   FemSolverRun,
   FemSolverStatus,
@@ -226,12 +227,18 @@ export async function runFemSolverPreflight<S extends FemSolverKey>(
   solver: S,
   modelPath: string,
   loadPath?: string,
+  solverOptions?: FemSolverOptions,
   signal?: AbortSignal,
 ): Promise<FemSolverPreflight<S>> {
   return await runFemCoreRequest<FemSolverPreflight<S>>(
     cwd,
     "solver.preflight",
-    { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
+    {
+      solver,
+      modelPath,
+      ...(loadPath ? { loadPath } : {}),
+      ...(solverOptions ? { solverOptions } : {}),
+    },
     { signal },
   );
 }
@@ -241,12 +248,18 @@ export async function runFemSolverRun<S extends FemSolverKey>(
   solver: S,
   modelPath: string,
   loadPath?: string,
+  solverOptions?: FemSolverOptions,
   signal?: AbortSignal,
 ): Promise<FemSolverRun<S>> {
   return await runFemCoreRequest<FemSolverRun<S>>(
     cwd,
     "solver.run",
-    { solver, modelPath, ...(loadPath ? { loadPath } : {}) },
+    {
+      solver,
+      modelPath,
+      ...(loadPath ? { loadPath } : {}),
+      ...(solverOptions ? { solverOptions } : {}),
+    },
     { signal, timeoutMs: DEFAULT_SOLVER_RUN_TIMEOUT_MS },
   );
 }

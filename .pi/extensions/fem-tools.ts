@@ -16,6 +16,19 @@ const solverName = Type.Union([Type.Literal("opensees"), Type.Literal("ansys")],
   description: "Concrete FEM solver adapter. Current support is OpenSeesPy and ANSYS MAPDL.",
 });
 
+const ansysModelUnits = Type.Object({
+  length: Type.Union([Type.Literal("m"), Type.Literal("cm"), Type.Literal("mm")], {
+    description: "Declared ANSYS model length unit. FEMagent never infers this from model magnitudes.",
+  }),
+  time: Type.Union([Type.Literal("s"), Type.Literal("ms")], {
+    description: "Declared ANSYS model time unit. Required with an ANSYS canonical external load.",
+  }),
+});
+
+const solverOptions = Type.Object({
+  modelUnits: Type.Optional(ansysModelUnits),
+});
+
 const resultQuantity = Type.Union(
   [
     Type.Literal("DISPLACEMENT"),
@@ -190,22 +203,32 @@ export default function femToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_solver_preflight",
     label: "Preflight FEM Solver",
-    description: "Validate solver availability plus model-bundle compatibility without performing the requested solve. OpenSees Python and ANSYS APDL bundles use solver-specific build-only inspection before execution.",
-    promptSnippet: "Preflight the concrete FEM solver after static model inspection and before execution",
+    description: "Validate solver availability plus model-bundle compatibility without performing the requested solve. ANSYS canonical external loads are build-checked in a staged bundle before execution.",
+    promptSnippet: "Preflight the concrete FEM solver after static model/load inspection and before execution",
     promptGuidelines: [
       "Call fem_solver_preflight before fem_solver_run and resolve BLOCKED checks before requesting execution.",
       "For OpenSees Python model bundles, loadPath may be omitted when the model script owns its load and analysis definition.",
       "For the controlled OpenSees ELASTIC_SDOF JSON model, a canonical FEMAGENT_LOAD_CSV_V1 load remains required.",
-      "For ANSYS PR8, APDL/CDB model bundles own their analysis/load application. A provided loadPath is provenance only and is not injected into APDL.",
-      "ANSYS preflight stages a sanitized build-only bundle and must stop before /SOLU, SOLVE, or postprocessing; inspect BUILD_ONLY_INSPECTION before execution.",
+      "OpenSees does not accept ANSYS solverOptions.modelUnits and must fail closed when they are supplied.",
+      "For ANSYS with loadPath, declare solverOptions.modelUnits.length and .time from deterministic project/user evidence; never guess model units.",
+      "ANSYS PR10 accepts one FEMAGENT_LOAD_CSV_V1 EARTHQUAKE + UNIFORM_EXCITATION + ACCELERATION channel and validates the transient injection hook before execution.",
+      "ANSYS preflight stages a sanitized build-only bundle, validates generated load artifacts, and must not advance the requested solve.",
     ],
     parameters: Type.Object({
       solver: solverName,
       modelPath: Type.String({ description: "Workspace-relative solver model entrypoint path" }),
-      loadPath: Type.Optional(Type.String({ description: "Optional external load path; solver-specific preflight determines whether it is consumed or provenance-only" })),
+      loadPath: Type.Optional(Type.String({ description: "Optional canonical external load path; ANSYS PR10 consumes the supported canonical earthquake contract" })),
+      solverOptions: Type.Optional(solverOptions),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const report = await runFemSolverPreflight(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);
+      const report = await runFemSolverPreflight(
+        ctx.cwd,
+        params.solver,
+        params.modelPath,
+        params.loadPath,
+        params.solverOptions,
+        signal,
+      );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
     },
   });
@@ -219,17 +242,26 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "Never call fem_solver_run before fem_solver_preflight reports READY.",
       "fem_solver_run is an EXECUTION action. The permission gate must obtain user approval before the solver starts.",
       "OpenSees Python entrypoints may own their load/analysis definition; omitted loadPath is valid only when preflight reports MODEL_SCRIPT_MANAGED.",
-      "ANSYS runs must execute the staged Model Bundle, not the user's original source directory; preserve bundleFingerprint and per-file hashes as provenance.",
-      "Do not execute a model whose static inspection, dependency graph, or build-only inspection is blocked.",
+      "For ANSYS canonical injection, pass the same loadPath and solverOptions.modelUnits that produced READY preflight; do not alter or infer them between preflight and run.",
+      "ANSYS runs must generate load artifacts and inject only into the staged Model Bundle, never the user's source model; inspect load/injection hashes and executionInputFingerprint in the run manifest.",
+      "Do not execute a model whose static inspection, dependency graph, canonical-load injection check, or build-only inspection is blocked.",
       "ANSYS run completion proves the MAPDL process returned successfully and outputs were captured; use fem_result_inspect/query for numerical result truth rather than LLM inference.",
     ],
     parameters: Type.Object({
       solver: solverName,
       modelPath: Type.String({ description: "Workspace-relative solver model entrypoint path" }),
-      loadPath: Type.Optional(Type.String({ description: "Optional external load path; solver-specific contract determines whether it is consumed or provenance-only" })),
+      loadPath: Type.Optional(Type.String({ description: "Optional canonical external load path; solver-specific contract determines whether it is consumed" })),
+      solverOptions: Type.Optional(solverOptions),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const report = await runFemSolverRun(ctx.cwd, params.solver, params.modelPath, params.loadPath, signal);
+      const report = await runFemSolverRun(
+        ctx.cwd,
+        params.solver,
+        params.modelPath,
+        params.loadPath,
+        params.solverOptions,
+        signal,
+      );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
     },
   });
