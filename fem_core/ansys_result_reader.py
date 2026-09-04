@@ -113,7 +113,7 @@ def describe_ansys_binary_result(path: Path) -> dict[str, Any]:
     times = _float_values(result.time_values, label="abscissa") if nsets else []
     dofs = _result_dofs(result)
     try:
-        node_count = int(len(result.mesh.nnum))
+        node_count = len(result.mesh.nnum)
     except Exception as exc:
         raise FemCoreError(
             "INVALID_ANSYS_BINARY_RESULT",
@@ -210,7 +210,11 @@ def _query_reaction(
         matches: list[float] = []
         for raw_force, raw_node, raw_dof_index in zip(reaction, nodes, dof_indices):
             index = int(raw_dof_index) - 1
-            if 0 <= index < len(dof_labels) and int(raw_node) == node_id and dof_labels[index] == source_dof:
+            if (
+                0 <= index < len(dof_labels)
+                and int(raw_node) == node_id
+                and dof_labels[index] == source_dof
+            ):
                 matches.append(float(raw_force))
         if len(matches) != 1 or not math.isfinite(matches[0]):
             raise FemCoreError(
