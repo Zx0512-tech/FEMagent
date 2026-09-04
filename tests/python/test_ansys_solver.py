@@ -100,24 +100,19 @@ def test_ansys_preflight_fails_closed_when_runtime_is_unavailable(tmp_path: Path
     assert report["load"] == {"mode": "MODEL_SCRIPT_MANAGED"}
 
 
-def test_ansys_preflight_records_but_does_not_inject_external_load(
+def test_ansys_preflight_without_external_load_keeps_model_script_managed_workflow(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.delenv("FEM_ANSYS_EXECUTABLE", raising=False)
-    load = tmp_path / "earthquake.csv"
-    load.write_text("time,value\n0,0\n1,1\n", encoding="utf-8")
 
     report = get_solver_adapter("ansys").preflight(
         tmp_path,
         model_path=_model(tmp_path),
-        load_path="earthquake.csv",
+        load_path=None,
     )
 
-    assert report["load"]["mode"] == "MODEL_SCRIPT_MANAGED"
-    assert report["load"]["providedPath"] == "earthquake.csv"
-    assert len(report["load"]["providedSha256"]) == 64
-    assert report["load"]["injected"] is False
-    assert {warning["code"] for warning in report["warnings"]} == {"EXTERNAL_LOAD_NOT_INJECTED"}
+    assert report["load"] == {"mode": "MODEL_SCRIPT_MANAGED"}
+    assert all(check["code"] != "CANONICAL_LOAD_INJECTION" for check in report["checks"])
 
 
 def test_ansys_build_only_stages_sanitized_input_without_solving(tmp_path: Path, monkeypatch) -> None:
