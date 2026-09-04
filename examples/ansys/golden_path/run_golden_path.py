@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import argparse
+import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -184,3 +187,130 @@ def run_golden_once(
         "resultInspection": result_inspection,
         "resultQuery": result_query,
     }
+
+
+def response_changed(base_peak: float, scaled_peak: float) -> bool:
+    base = float(base_peak)
+    scaled = float(scaled_peak)
+    if not math.isfinite(base) or not math.isfinite(scaled):
+        return False
+    tolerance = max(1.0e-12, 1.0e-6 * max(abs(base), abs(scaled)))
+    return abs(scaled - base) > tolerance
+
+
+def run_real_causality_check(
+    workspace: Path,
+    *,
+    model_path: str,
+) -> dict[str, Any]:
+    root = workspace.resolve()
+    adapter = get_solver_adapter("ansys")
+    runtime = adapter.status()
+    if not runtime.get("available"):
+        raise FemCoreError(
+            "GOLDEN_PATH_ANSYS_UNAVAILABLE",
+            "The real ANSYS Golden Path requires FEM_ANSYS_EXECUTABLE to resolve to an executable file",
+            details={
+                "reason": runtime.get("reason"),
+                "configuredPath": runtime.get("configuredPath"),
+            },
+        )
+
+    base_xlsx = write_earthquake_xlsx(
+        root,
+        amplitude_scale=1.0,
+        name=".femagent/generated/golden_path/earthquake-base.xlsx",
+    )
+    scaled_xlsx = write_earthquake_xlsx(
+        root,
+        amplitude_scale=2.0,
+        name=".femagent/generated/golden_path/earthquake-scale-2.xlsx",
+    )
+    base = run_golden_once(
+        root,
+        model_path=model_path,
+        xlsx_path=base_xlsx,
+        fixture_result_mode=False,
+    )
+    scaled = run_golden_once(
+        root,
+        model_path=model_path,
+        xlsx_path=scaled_xlsx,
+        fixture_result_mode=False,
+    )
+
+    base_peak = float(base["resultQuery"]["summary"]["absolutePeak"])
+    scaled_peak = float(scaled["resultQuery"]["summary"]["absolutePeak"])
+    if not math.isfinite(base_peak) or not math.isfinite(scaled_peak) or base_peak == 0.0 or scaled_peak == 0.0:
+        raise FemCoreError(
+            "GOLDEN_PATH_CAUSALITY_FAILED",
+            "Real ANSYS Golden Path requires finite non-zero node-2 X displacement peaks",
+            details={"basePeak": base_peak, "scaledPeak": scaled_peak},
+        )
+
+    base_execution = base["run"]["executionInputFingerprint"]
+    scaled_execution = scaled["run"]["executionInputFingerprint"]
+    base_case = base["run"]["caseFingerprint"]
+    scaled_case = scaled["run"]["caseFingerprint"]
+    fingerprints_changed = base_execution != scaled_execution and base_case != scaled_case
+    displacement_changed = response_changed(base_peak, scaled_peak)
+    if not fingerprints_changed or not displacement_changed:
+        raise FemCoreError(
+            "GOLDEN_PATH_CAUSALITY_FAILED",
+            "Doubling the earthquake amplitude did not change both execution identity and real ANSYS response",
+            details={
+                "executionFingerprintChanged": base_execution != scaled_execution,
+                "caseFingerprintChanged": base_case != scaled_case,
+                "responseChanged": displacement_changed,
+                "basePeak": base_peak,
+                "scaledPeak": scaled_peak,
+            },
+        )
+
+    return {
+        "schemaVersion": "1.0",
+        "kind": "ansys_golden_path_causality",
+        "status": "PASSED",
+        "response": {"node": 2, "component": "X", "quantity": "DISPLACEMENT"},
+        "base": {
+            "amplitudeScale": 1.0,
+            "runId": base["run"]["runId"],
+            "executionInputFingerprint": base_execution,
+            "caseFingerprint": base_case,
+            "absolutePeak": base_peak,
+        },
+        "scaled": {
+            "amplitudeScale": 2.0,
+            "runId": scaled["run"]["runId"],
+            "executionInputFingerprint": scaled_execution,
+            "caseFingerprint": scaled_case,
+            "absolutePeak": scaled_peak,
+        },
+        "checks": {
+            "executionFingerprintChanged": True,
+            "caseFingerprintChanged": True,
+            "responseChanged": True,
+        },
+    }
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the FEMagent PR11 real ANSYS Golden Path causality check")
+    parser.add_argument("--workspace", default=".", help="FEMagent workspace root")
+    parser.add_argument(
+        "--model-path",
+        default="examples/ansys/golden_path/model.inp",
+        help="Workspace-relative ANSYS Golden Model path",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    report = run_real_causality_check(Path(args.workspace), model_path=args.model_path)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
