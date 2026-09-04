@@ -40,6 +40,19 @@ def _required_object(payload: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+def _optional_object(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise FemCoreError(
+            "INVALID_ARGUMENT",
+            f"'{key}' must be a JSON object when provided",
+            details={"field": key},
+        )
+    return value
+
+
 def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
     request_id = "unknown"
     command = "unknown"
@@ -94,6 +107,7 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 workspace,
                 model_path=_required_text(payload, "modelPath"),
                 load_path=_optional_text(payload, "loadPath"),
+                solver_options=_optional_object(payload, "solverOptions"),
             )
         elif command == "solver.run":
             adapter = get_solver_adapter(_required_text(payload, "solver"))
@@ -101,6 +115,7 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 workspace,
                 model_path=_required_text(payload, "modelPath"),
                 load_path=_optional_text(payload, "loadPath"),
+                solver_options=_optional_object(payload, "solverOptions"),
             )
         else:
             raise FemCoreError("UNKNOWN_COMMAND", "Unknown FEM engineering command", details={"command": command})
