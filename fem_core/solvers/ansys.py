@@ -86,6 +86,7 @@ def _canonical_load_summary(
         "channelId": load["channelId"],
         "component": load["component"],
         "quantity": load["quantity"],
+        "unit": load["canonicalUnit"],
         "canonicalUnit": load["canonicalUnit"],
         "sampleCount": load["sampleCount"],
         "modelUnits": load["modelUnits"],
@@ -606,6 +607,7 @@ class AnsysAdapter(SolverAdapter):
             "kind": "solver_run",
             "runId": run_id,
             "caseFingerprint": sha256(fingerprint_payload).hexdigest(),
+            "executionInputFingerprint": execution_input_fingerprint,
             "status": "COMPLETED",
             "solver": {
                 "name": "ANSYS",
