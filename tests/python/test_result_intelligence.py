@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from ansys.mapdl import reader as pymapdl_reader
+from ansys.mapdl.reader import examples
 
 from fem_core.errors import FemCoreError
 from fem_core.result_intelligence import inspect_result, query_result
@@ -83,6 +86,39 @@ def _write_open_sees_run(tmp_path: Path, *, run_id: str = "run_resulttest0001") 
     }
     manifest_path = run_dir / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return run_dir
+
+
+def _write_ansys_run(tmp_path: Path, *, with_binary: bool) -> Path:
+    run_id = "run_ansysresult001"
+    run_dir = tmp_path / ".femagent" / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    outputs: dict[str, str] = {
+        "runManifest": f".femagent/runs/{run_id}/run_manifest.json",
+    }
+    if with_binary:
+        binary = run_dir / "fem_result.rst"
+        shutil.copyfile(examples.rstfile, binary)
+        outputs["binaryResult"] = f".femagent/runs/{run_id}/fem_result.rst"
+        outputs["binaryResultSha256"] = _sha(binary)
+    manifest = {
+        "schemaVersion": "1.0",
+        "kind": "solver_run",
+        "runId": run_id,
+        "caseFingerprint": "d" * 64,
+        "status": "COMPLETED",
+        "solver": {
+            "name": "ANSYS",
+            "runtime": "ANSYS_MAPDL",
+            "executionMode": "ISOLATED_PROCESS",
+        },
+        "model": {"path": "main.inp", "sha256": "e" * 64},
+        "load": {"mode": "MODEL_SCRIPT_MANAGED"},
+        "analysis": {"type": "MODEL_SCRIPT"},
+        "summary": {"processReturnCode": 0},
+        "outputs": outputs,
+    }
+    (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return run_dir
 
 
@@ -277,3 +313,46 @@ def test_query_arbitrary_open_sees_bundle_does_not_invent_response_series(tmp_pa
             },
         )
     assert unavailable.value.code == "RESULT_SERIES_UNAVAILABLE"
+
+
+def test_inspect_ansys_without_binary_result_is_limited_not_fabricated(tmp_path: Path) -> None:
+    run_dir = _write_ansys_run(tmp_path, with_binary=False)
+
+    report = inspect_result(tmp_path, run_dir.name)
+
+    assert report["solver"]["name"] == "ANSYS"
+    assert report["integrity"]["status"] == "LIMITED"
+    assert report["queryCapabilities"] == []
+    assert {warning["code"] for warning in report["warnings"]} == {
+        "ANSYS_BINARY_RESULT_NOT_RECORDED"
+    }
+
+
+def test_inspect_and_query_ansys_real_binary_result_keep_units_unknown(tmp_path: Path) -> None:
+    run_dir = _write_ansys_run(tmp_path, with_binary=True)
+    binary_path = run_dir / "fem_result.rst"
+    raw = pymapdl_reader.read_binary(binary_path, parse_vtk=False)
+    nnum, _ = raw.nodal_solution(0)
+    node_id = int(nnum[0])
+
+    report = inspect_result(tmp_path, run_dir.name)
+    assert report["integrity"]["status"] == "VALID"
+    assert report["abscissa"]["unit"] is None
+    assert any(capability["quantity"] == "DISPLACEMENT" for capability in report["queryCapabilities"])
+    assert "ANSYS_RESULT_UNIT_SYSTEM_NOT_DECLARED" in {
+        warning["code"] for warning in report["warnings"]
+    }
+
+    result = query_result(
+        tmp_path,
+        run_dir.name,
+        {
+            "quantity": "DISPLACEMENT",
+            "target": {"type": "NODE", "id": node_id},
+            "component": "X",
+            "operation": "SUMMARY",
+        },
+    )
+    assert result["unit"] is None
+    assert result["referenceFrame"] == "SOLVER_NATIVE"
+    assert result["summary"]["sampleCount"] >= 1
