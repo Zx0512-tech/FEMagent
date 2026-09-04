@@ -5,9 +5,7 @@ from pathlib import Path
 import pytest
 
 from fem_core.errors import FemCoreError
-from fem_core.solvers.ansys_load import (
-    read_ansys_canonical_uniform_excitation,
-)
+from fem_core.solvers import ansys_load
 
 
 CANONICAL_HEADER = (
@@ -36,7 +34,7 @@ def test_ansys_canonical_load_converts_si_to_declared_mm_s_units(tmp_path: Path)
         ],
     )
 
-    result = read_ansys_canonical_uniform_excitation(
+    result = ansys_load.read_ansys_canonical_uniform_excitation(
         path,
         {"length": "mm", "time": "s"},
     )
@@ -78,7 +76,10 @@ def test_ansys_canonical_load_normalizes_cartesian_component_aliases(
         name=f"{component}.csv",
     )
 
-    result = read_ansys_canonical_uniform_excitation(path, {"length": "m", "time": "s"})
+    result = ansys_load.read_ansys_canonical_uniform_excitation(
+        path,
+        {"length": "m", "time": "s"},
+    )
 
     assert result["component"] == expected
 
@@ -92,7 +93,10 @@ def test_ansys_canonical_load_converts_seconds_and_acceleration_for_ms_time_unit
         ],
     )
 
-    result = read_ansys_canonical_uniform_excitation(path, {"length": "m", "time": "ms"})
+    result = ansys_load.read_ansys_canonical_uniform_excitation(
+        path,
+        {"length": "m", "time": "ms"},
+    )
 
     assert result["timesModel"] == [0.0, 2.0]
     assert result["valuesModel"] == pytest.approx([1.0e-6, 2.0e-6])
@@ -109,11 +113,14 @@ def test_ansys_canonical_load_requires_explicit_supported_model_units(tmp_path: 
     )
 
     with pytest.raises(FemCoreError) as missing:
-        read_ansys_canonical_uniform_excitation(path, {})
+        ansys_load.read_ansys_canonical_uniform_excitation(path, {})
     assert missing.value.code == "ANSYS_MODEL_UNITS_REQUIRED"
 
     with pytest.raises(FemCoreError) as unsupported:
-        read_ansys_canonical_uniform_excitation(path, {"length": "in", "time": "s"})
+        ansys_load.read_ansys_canonical_uniform_excitation(
+            path,
+            {"length": "in", "time": "s"},
+        )
     assert unsupported.value.code == "UNSUPPORTED_ANSYS_MODEL_UNITS"
 
 
@@ -127,7 +134,10 @@ def test_ansys_canonical_load_rejects_non_global_target_and_wrong_contract(tmp_p
         name="targeted.csv",
     )
     with pytest.raises(FemCoreError) as target_error:
-        read_ansys_canonical_uniform_excitation(targeted, {"length": "m", "time": "s"})
+        ansys_load.read_ansys_canonical_uniform_excitation(
+            targeted,
+            {"length": "m", "time": "s"},
+        )
     assert target_error.value.code == "ANSYS_UNIFORM_EXCITATION_MUST_BE_GLOBAL"
 
     wrong = _write_load(
@@ -139,7 +149,10 @@ def test_ansys_canonical_load_rejects_non_global_target_and_wrong_contract(tmp_p
         name="wrong.csv",
     )
     with pytest.raises(FemCoreError) as contract_error:
-        read_ansys_canonical_uniform_excitation(wrong, {"length": "m", "time": "s"})
+        ansys_load.read_ansys_canonical_uniform_excitation(
+            wrong,
+            {"length": "m", "time": "s"},
+        )
     assert contract_error.value.code == "UNSUPPORTED_ANSYS_CANONICAL_LOAD"
 
 
@@ -155,7 +168,10 @@ def test_ansys_canonical_load_rejects_multiple_channels_and_nonincreasing_time(t
         name="multi.csv",
     )
     with pytest.raises(FemCoreError) as multi_error:
-        read_ansys_canonical_uniform_excitation(multi, {"length": "m", "time": "s"})
+        ansys_load.read_ansys_canonical_uniform_excitation(
+            multi,
+            {"length": "m", "time": "s"},
+        )
     assert multi_error.value.code == "MULTI_CHANNEL_ANSYS_LOAD_NOT_SUPPORTED"
 
     bad_time = _write_load(
@@ -167,5 +183,8 @@ def test_ansys_canonical_load_rejects_multiple_channels_and_nonincreasing_time(t
         name="bad-time.csv",
     )
     with pytest.raises(FemCoreError) as time_error:
-        read_ansys_canonical_uniform_excitation(bad_time, {"length": "m", "time": "s"})
+        ansys_load.read_ansys_canonical_uniform_excitation(
+            bad_time,
+            {"length": "m", "time": "s"},
+        )
     assert time_error.value.code == "TIME_NOT_STRICTLY_INCREASING"
