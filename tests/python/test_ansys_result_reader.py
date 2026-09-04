@@ -6,7 +6,7 @@ import pytest
 from ansys.mapdl import reader as pymapdl_reader
 from ansys.mapdl.reader import examples
 
-import fem_core.ansys_result_reader as ansys_result_reader
+from fem_core import ansys_result_reader
 from fem_core.ansys_result_reader import describe_ansys_binary_result, query_ansys_nodal_result
 from fem_core.errors import FemCoreError
 
