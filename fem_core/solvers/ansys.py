@@ -18,6 +18,7 @@ from fem_core.solvers.ansys_runner import (
 from fem_core.solvers.base import SolverAdapter
 
 _ANSYS_EXECUTABLE_ENV = "FEM_ANSYS_EXECUTABLE"
+_ANSYS_BINARY_RESULT_SUFFIXES = (".rst", ".rth", ".rfl", ".rmg")
 
 
 def _sha256_file(path: Path) -> str:
@@ -54,6 +55,14 @@ def _load_provenance(workspace: Path, load_path: str | None) -> tuple[dict[str, 
             }
         ],
     )
+
+
+def _find_binary_result(working_directory: Path, jobname: str) -> Path | None:
+    for suffix in _ANSYS_BINARY_RESULT_SUFFIXES:
+        candidate = (working_directory / f"{jobname}{suffix}").resolve()
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 class AnsysAdapter(SolverAdapter):
@@ -276,12 +285,13 @@ class AnsysAdapter(SolverAdapter):
         )
         runtime_output = run_dir / "ansys.out"
         solver_log = run_dir / "solver.log"
+        jobname = f"fem_{run_id[-8:]}"
         process = run_ansys_process(
             Path(str(status["configuredPath"])),
             input_path=staged["entrypoint"],
             output_path=runtime_output,
             cwd=staged["workingDirectory"],
-            jobname=f"fem_{run_id[-8:]}",
+            jobname=jobname,
         )
         _write_process_log(solver_log, process)
         if process["returnCode"] != 0:
@@ -301,6 +311,7 @@ class AnsysAdapter(SolverAdapter):
                 details={"runId": run_id},
             )
 
+        binary_result = _find_binary_result(staged["workingDirectory"], jobname)
         load, _ = _load_provenance(workspace, load_path)
         fingerprint_payload = json.dumps(
             {
@@ -314,6 +325,18 @@ class AnsysAdapter(SolverAdapter):
             separators=(",", ":"),
         ).encode("utf-8")
         manifest_path = run_dir / "run_manifest.json"
+        outputs = {
+            "runManifest": workspace_relative_path(workspace, manifest_path),
+            "runtimeOutput": workspace_relative_path(workspace, runtime_output),
+            "runtimeOutputSha256": _sha256_file(runtime_output),
+            "solverLog": workspace_relative_path(workspace, solver_log),
+            "solverLogSha256": _sha256_file(solver_log),
+            "stagedBundleRoot": workspace_relative_path(workspace, staged["stageRoot"]),
+        }
+        if binary_result is not None:
+            outputs["binaryResult"] = workspace_relative_path(workspace, binary_result)
+            outputs["binaryResultSha256"] = _sha256_file(binary_result)
+
         manifest = {
             "schemaVersion": "1.0",
             "kind": "solver_run",
@@ -340,14 +363,7 @@ class AnsysAdapter(SolverAdapter):
                 "processReturnCode": process["returnCode"],
                 "resultExtraction": "NOT_IMPLEMENTED_IN_PR8",
             },
-            "outputs": {
-                "runManifest": workspace_relative_path(workspace, manifest_path),
-                "runtimeOutput": workspace_relative_path(workspace, runtime_output),
-                "runtimeOutputSha256": _sha256_file(runtime_output),
-                "solverLog": workspace_relative_path(workspace, solver_log),
-                "solverLogSha256": _sha256_file(solver_log),
-                "stagedBundleRoot": workspace_relative_path(workspace, staged["stageRoot"]),
-            },
+            "outputs": outputs,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
         return manifest
