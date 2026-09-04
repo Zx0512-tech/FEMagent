@@ -27,11 +27,11 @@ It combines an agent runtime with deterministic engineering tools so an LLM can 
          |                     |
          +------ Solver Adapters ------+
                  |             |
-              OpenSees     ANSYS (planned)
-                 |
-             Real Solver Run
-                 |
-          Run / Artifact / Evidence
+              OpenSees       ANSYS
+                 |             |
+                 +------ Real Solver Run
+                               |
+                    Run / Artifact / Evidence
 ```
 
 ### Pi Agent Runtime
@@ -58,29 +58,30 @@ run(model_path, load_path?)
 
 The abstract load path is optional because a solver-native model can own its load definition. Each concrete adapter must still enforce whichever inputs its model contract actually requires.
 
-OpenSeesPy is the current real solver adapter. ANSYS remains a planned adapter target; existing ANSYS APDL/CDB Model Intelligence does not by itself mean ANSYS execution is implemented.
+OpenSeesPy and ANSYS MAPDL are the current real solver adapters. They share the generic agent-facing tools while retaining solver-specific deterministic preflight and execution behavior.
 
 ### Solvers
 
-Own numerical FEM results. An LLM explanation, static parser, or model-name heuristic is never a substitute for a solver result.
+Own numerical FEM results. An LLM explanation, static parser, model-name heuristic, or successful process exit is never a substitute for extracted solver-result evidence.
 
 ## Model identity
 
 FEMagent does not assume that a model is one file.
 
-For multi-file models, especially OpenSees Python, the deterministic unit of identity is a `Model Bundle`:
+For multi-file models the deterministic unit of identity is a `Model Bundle`:
 
 ```text
 entrypoint
-  + resolved workspace-local modules
-  + referenced workspace-local data
+  + resolved workspace-local dependencies
   + per-file SHA256
   -> deterministic bundleFingerprint
 ```
 
-A helper/data-file change therefore changes the model identity even when the entrypoint file itself is unchanged.
+A helper/include/data-file change therefore changes the model identity even when the entrypoint file itself is unchanged.
 
 Dependencies that escape the active workspace are blocked. Bundle discovery does not install missing packages, fetch remote code, or authorize arbitrary shell/network behavior.
+
+ANSYS bundle members may use `.cdb`, `.inp`, `.apdl`, `.mac`, `.dat`, or `.txt`; TXT/DAT entrypoints are promoted to models only when APDL/CDB content signals are present. `/INPUT` and `*USE` references form the current deterministic ANSYS dependency graph.
 
 ## Static inspection and solver inspection
 
@@ -109,22 +110,46 @@ realized domain evidence
         |
         v
 user-approved fem_solver_run
-        |
-        v
-numerical result evidence
 ```
 
-This allows dynamic Python models to be understood without pretending that an AST can enumerate everything a solver will construct.
+For ANSYS APDL/CDB:
+
+```text
+fem_model_inspect
+        |
+        v
+static APDL safety + /INPUT/*USE discovery
+        |
+        v
+ANSYS Model Bundle
+        |
+        v
+fem_solver_preflight
+        |
+        v
+staged sanitized build-only MAPDL run
+(stops before /SOLU / SOLVE / postprocessing)
+        |
+        v
+READY / BLOCKED evidence
+        |
+        v
+user-approved staged fem_solver_run
+```
+
+Static APDL does not always enumerate realized topology for parameterized/block-based models. PR8 build-only inspection proves that the staged model can be constructed without intentionally advancing the requested solve; detailed ANSYS domain/result extraction remains a later Result Intelligence responsibility.
 
 ## Execution provenance
 
-A real OpenSees Python Model Bundle is staged under the run directory before execution:
+Real solver-native Model Bundles are staged under their run directory before execution:
 
 ```text
 .femagent/runs/<runId>/model_bundle/
 ```
 
-The staged bundle, its fingerprint/file hashes, solver version, run/case identity, logs, and result artifacts form the precursor to the Artifact/Evidence layer.
+The staged bundle, its fingerprint/file hashes, solver/runtime identity, run/case identity, logs, and captured outputs form the precursor to the Artifact/Evidence layer.
+
+For ANSYS, `FEM_ANSYS_EXECUTABLE` is the explicit runtime configuration boundary. FEMagent does not guess or scan installation paths.
 
 ## Trust boundary
 
