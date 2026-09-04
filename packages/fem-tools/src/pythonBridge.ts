@@ -12,6 +12,11 @@ import {
 } from "./bridgeProtocol.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
 import type {
+  FemResultManifest,
+  FemResultQuery,
+  FemResultQueryRequest,
+} from "./resultTypes.js";
+import type {
   FemSolverKey,
   FemSolverPreflight,
   FemSolverRun,
@@ -189,6 +194,23 @@ export async function runFemLoadStandardize(
     { path, mapping, ...(outputPath ? { outputPath } : {}) },
     { signal },
   );
+}
+
+export async function runFemResultInspect(
+  cwd: string,
+  runRef: string,
+  signal?: AbortSignal,
+): Promise<FemResultManifest> {
+  return await runFemCoreRequest<FemResultManifest>(cwd, "result.inspect", { runRef }, { signal });
+}
+
+export async function runFemResultQuery(
+  cwd: string,
+  runRef: string,
+  query: FemResultQueryRequest,
+  signal?: AbortSignal,
+): Promise<FemResultQuery> {
+  return await runFemCoreRequest<FemResultQuery>(cwd, "result.query", { runRef, query }, { signal });
 }
 
 export async function runFemSolverStatus<S extends FemSolverKey>(
