@@ -15,6 +15,9 @@ dependencies = [
 opensees = [
   "openseespy==3.8.0.0",
 ]
+ansys-results = [
+  "ansys-mapdl-reader==0.56.0",
+]
 dev = [
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
