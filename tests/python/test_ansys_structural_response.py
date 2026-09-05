@@ -63,7 +63,7 @@ def _first_finite_node(raw, method_name: str, component_index: int) -> int:
 
 
 def _first_element_id(raw) -> int:
-    _stress, elements, _nodes = raw.element_stress(0)
+    elements, _stress, _nodes = raw.element_stress(0)
     return int(elements[0])
 
 
