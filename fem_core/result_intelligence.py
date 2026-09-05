@@ -29,6 +29,7 @@ _ARTIFACT_HASH_PAIRS = (
     ("solverLog", "solverLogSha256"),
     ("runtimeOutput", "runtimeOutputSha256"),
     ("binaryResult", "binaryResultSha256"),
+    ("structuralResponse", "structuralResponseSha256"),
 )
 _COMPONENT_ALIASES = {
     "X": "X",
@@ -101,11 +102,7 @@ def _load_run_manifest(workspace: Path, run_ref: str) -> tuple[Path, dict[str, A
         raise FemCoreError("INVALID_RUN_MANIFEST", "Run manifest is not valid UTF-8 JSON") from exc
     if not isinstance(payload, dict):
         raise FemCoreError("INVALID_RUN_MANIFEST", "Run manifest must be a JSON object")
-    required = {
-        "kind": "solver_run",
-        "schemaVersion": "1.0",
-        "status": "COMPLETED",
-    }
+    required = {"kind": "solver_run", "schemaVersion": "1.0", "status": "COMPLETED"}
     if any(payload.get(key) != expected for key, expected in required.items()):
         raise FemCoreError(
             "INVALID_RUN_MANIFEST",
@@ -172,19 +169,19 @@ def _verify_declared_artifacts(workspace: Path, manifest: dict[str, Any]) -> lis
     return artifacts
 
 
-def _finite(value: str, *, column: str, row_number: int) -> float:
+def _finite(value: Any, *, column: str, row_number: int) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
         raise FemCoreError(
             "INVALID_RESULT_SERIES",
-            "OpenSees response CSV contains a non-numeric value",
+            "OpenSees response contains a non-numeric value",
             details={"column": column, "row": row_number},
         ) from exc
     if not math.isfinite(number):
         raise FemCoreError(
             "INVALID_RESULT_SERIES",
-            "OpenSees response CSV contains a non-finite value",
+            "OpenSees response contains a non-finite value",
             details={"column": column, "row": row_number},
         )
     return number
@@ -198,10 +195,7 @@ def _read_open_sees_response(path: Path) -> dict[str, list[float]]:
                 raise FemCoreError(
                     "UNSUPPORTED_RESULT_SERIES",
                     "OpenSees response CSV does not match FEMagent's controlled response schema",
-                    details={
-                        "expected": list(_OPEN_SEES_RESPONSE_COLUMNS),
-                        "received": reader.fieldnames,
-                    },
+                    details={"expected": list(_OPEN_SEES_RESPONSE_COLUMNS), "received": reader.fieldnames},
                 )
             columns = {name: [] for name in _OPEN_SEES_RESPONSE_COLUMNS}
             for row_number, row in enumerate(reader, start=2):
@@ -213,80 +207,172 @@ def _read_open_sees_response(path: Path) -> dict[str, list[float]]:
         raise FemCoreError("INVALID_RESULT_SERIES", "OpenSees response CSV contains no samples")
     times = columns["time_s"]
     if any(current <= previous for previous, current in pairwise(times)):
-        raise FemCoreError(
-            "INVALID_RESULT_SERIES",
-            "OpenSees response time must be strictly increasing",
-        )
+        raise FemCoreError("INVALID_RESULT_SERIES", "OpenSees response time must be strictly increasing")
     return columns
 
 
-def _open_sees_result_manifest(
-    workspace: Path,
-    manifest: dict[str, Any],
-) -> dict[str, Any]:
-    outputs = manifest["outputs"]
-    response_path = outputs.get("responseCsv")
-    summary = manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {}
-    warnings: list[dict[str, Any]] = []
-    if not isinstance(response_path, str):
-        warnings.append(
+def _read_structural_response(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FemCoreError("INVALID_RESULT_SERIES", "Structural response artifact must be UTF-8 JSON") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schemaVersion") != "1.0"
+        or payload.get("kind") != "structural_response_series"
+        or not isinstance(payload.get("channels"), list)
+        or not payload["channels"]
+    ):
+        raise FemCoreError("INVALID_RESULT_SERIES", "Structural response artifact has an invalid schema")
+
+    channel_ids: set[str] = set()
+    channels: list[dict[str, Any]] = []
+    for index, raw in enumerate(payload["channels"]):
+        if not isinstance(raw, dict):
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response channel must be an object")
+        channel_id = raw.get("channelId")
+        if not isinstance(channel_id, str) or not channel_id or channel_id in channel_ids:
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response channelId must be unique")
+        channel_ids.add(channel_id)
+        query = {
+            "quantity": raw.get("quantity"),
+            "target": raw.get("target"),
+            "component": raw.get("component"),
+            "operation": "SERIES",
+        }
+        if "location" in raw:
+            query["location"] = raw.get("location")
+        normalized = normalize_structural_query(query)
+        abscissa_raw = raw.get("abscissaValues")
+        values_raw = raw.get("values")
+        if not isinstance(abscissa_raw, list) or not isinstance(values_raw, list) or not values_raw:
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response channel must contain samples")
+        if len(abscissa_raw) != len(values_raw):
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response sample counts do not match")
+        abscissa = [_finite(value, column="abscissaValues", row_number=index) for value in abscissa_raw]
+        values = [_finite(value, column="values", row_number=index) for value in values_raw]
+        reference_frame = raw.get("referenceFrame")
+        abscissa_semantic = raw.get("abscissaSemantic")
+        unit = raw.get("unit")
+        abscissa_unit = raw.get("abscissaUnit")
+        if not isinstance(reference_frame, str) or not reference_frame:
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response referenceFrame is required")
+        if not isinstance(abscissa_semantic, str) or not abscissa_semantic:
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response abscissaSemantic is required")
+        if unit is not None and not isinstance(unit, str):
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response unit must be string or null")
+        if abscissa_unit is not None and not isinstance(abscissa_unit, str):
+            raise FemCoreError("INVALID_RESULT_SERIES", "Structural response abscissaUnit must be string or null")
+        channels.append(
             {
-                "code": "NO_STANDARD_RESPONSE_SERIES",
-                "message": "This OpenSees run did not record a FEMagent standard response series",
+                "channelId": channel_id,
+                "quantity": normalized["quantity"],
+                "target": normalized["target"],
+                "component": normalized["component"],
+                **({"location": normalized["location"]} if "location" in normalized else {}),
+                "unit": unit,
+                "referenceFrame": reference_frame,
+                "abscissaSemantic": abscissa_semantic,
+                "abscissaUnit": abscissa_unit,
+                "abscissaValues": abscissa,
+                "values": values,
             }
         )
-        return {
-            "integrityStatus": "LIMITED",
-            "abscissa": None,
-            "queryCapabilities": [],
-            "warnings": warnings,
-            "observations": summary,
-        }
+    return {"channels": channels}
 
-    response_file = resolve_workspace_file(workspace, response_path)
-    series = _read_open_sees_response(response_file)
-    response_node = summary.get("responseNode")
-    response_dof = summary.get("responseDof")
-    if not isinstance(response_node, int) or response_dof != 1:
-        raise FemCoreError(
-            "INVALID_RESULT_SERIES",
-            "Controlled OpenSees response is missing its recorded node/DOF identity",
+
+def _open_sees_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    outputs = manifest["outputs"]
+    summary = manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {}
+    warnings: list[dict[str, Any]] = []
+    capabilities: list[dict[str, Any]] = []
+    abscissa: dict[str, Any] | None = None
+
+    response_path = outputs.get("responseCsv")
+    if isinstance(response_path, str):
+        response_file = resolve_workspace_file(workspace, response_path)
+        series = _read_open_sees_response(response_file)
+        response_node = summary.get("responseNode")
+        response_dof = summary.get("responseDof")
+        if not isinstance(response_node, int) or response_dof != 1:
+            raise FemCoreError(
+                "INVALID_RESULT_SERIES",
+                "Controlled OpenSees response is missing its recorded node/DOF identity",
+            )
+        capabilities.extend(
+            [
+                {
+                    "quantity": "DISPLACEMENT",
+                    "component": "X",
+                    "target": {"type": "NODE", "id": response_node},
+                    "unit": "m",
+                    "referenceFrame": "RELATIVE",
+                    "sourceColumn": "relative_displacement_m",
+                },
+                {
+                    "quantity": "VELOCITY",
+                    "component": "X",
+                    "target": {"type": "NODE", "id": response_node},
+                    "unit": "m/s",
+                    "referenceFrame": "RELATIVE",
+                    "sourceColumn": "relative_velocity_m_s",
+                },
+                {
+                    "quantity": "ACCELERATION",
+                    "component": "X",
+                    "target": {"type": "NODE", "id": response_node},
+                    "unit": "m/s2",
+                    "referenceFrame": "RELATIVE",
+                    "sourceColumn": "relative_acceleration_m_s2",
+                },
+            ]
         )
-    capabilities = [
-        {
-            "quantity": "DISPLACEMENT",
-            "component": "X",
-            "target": {"type": "NODE", "id": response_node},
-            "unit": "m",
-            "referenceFrame": "RELATIVE",
-            "sourceColumn": "relative_displacement_m",
-        },
-        {
-            "quantity": "VELOCITY",
-            "component": "X",
-            "target": {"type": "NODE", "id": response_node},
-            "unit": "m/s",
-            "referenceFrame": "RELATIVE",
-            "sourceColumn": "relative_velocity_m_s",
-        },
-        {
-            "quantity": "ACCELERATION",
-            "component": "X",
-            "target": {"type": "NODE", "id": response_node},
-            "unit": "m/s2",
-            "referenceFrame": "RELATIVE",
-            "sourceColumn": "relative_acceleration_m_s2",
-        },
-    ]
-    return {
-        "integrityStatus": "VALID",
-        "abscissa": {
+        abscissa = {
             "semantic": "TIME",
             "unit": "s",
             "sampleCount": len(series["time_s"]),
             "start": series["time_s"][0],
             "end": series["time_s"][-1],
-        },
+        }
+    else:
+        warnings.append(
+            {
+                "code": "NO_STANDARD_RESPONSE_SERIES",
+                "message": "This OpenSees run did not record a FEMagent standard response CSV",
+            }
+        )
+
+    structural_path = outputs.get("structuralResponse")
+    if isinstance(structural_path, str):
+        structural_file = resolve_workspace_file(workspace, structural_path)
+        structural = _read_structural_response(structural_file)
+        source_artifact = workspace_relative_path(workspace, structural_file)
+        for channel in structural["channels"]:
+            capability = {
+                "quantity": channel["quantity"],
+                "component": channel["component"],
+                "target": dict(channel["target"]),
+                "unit": channel["unit"],
+                "referenceFrame": channel["referenceFrame"],
+                "sourceArtifact": source_artifact,
+                "sourceChannelId": channel["channelId"],
+            }
+            if "location" in channel:
+                capability["location"] = channel["location"]
+            capabilities.append(capability)
+        first = structural["channels"][0]
+        if abscissa is None:
+            abscissa = {
+                "semantic": first["abscissaSemantic"],
+                "unit": first["abscissaUnit"],
+                "sampleCount": len(first["abscissaValues"]),
+                "start": first["abscissaValues"][0],
+                "end": first["abscissaValues"][-1],
+            }
+
+    return {
+        "integrityStatus": "VALID" if capabilities else "LIMITED",
+        "abscissa": abscissa,
         "queryCapabilities": capabilities,
         "warnings": warnings,
         "observations": summary,
@@ -302,23 +388,14 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
             "integrityStatus": "LIMITED",
             "abscissa": None,
             "queryCapabilities": [],
-            "warnings": [
-                {
-                    "code": "ANSYS_BINARY_RESULT_NOT_RECORDED",
-                    "message": "This ANSYS run did not record a MAPDL binary result artifact",
-                }
-            ],
+            "warnings": [{"code": "ANSYS_BINARY_RESULT_NOT_RECORDED", "message": "This ANSYS run did not record a MAPDL binary result artifact"}],
             "observations": summary,
         }
 
     binary_file = resolve_workspace_file(workspace, binary_path)
     description = describe_ansys_binary_result(binary_file)
     source_artifact = workspace_relative_path(workspace, binary_file)
-    axes = [
-        _ANSYS_DOF_TO_AXIS[dof]
-        for dof in description["dofLabels"]
-        if dof in _ANSYS_DOF_TO_AXIS
-    ]
+    axes = [_ANSYS_DOF_TO_AXIS[dof] for dof in description["dofLabels"] if dof in _ANSYS_DOF_TO_AXIS]
     capabilities = [
         {
             "quantity": quantity,
@@ -338,10 +415,7 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
                 {
                     "quantity": structural["quantity"],
                     "component": component,
-                    "target": {
-                        "type": structural["targetType"],
-                        "selection": "RECORDED_NODE_IDS",
-                    },
+                    "target": {"type": structural["targetType"], "selection": "RECORDED_NODE_IDS"},
                     "unit": None,
                     "referenceFrame": structural["referenceFrame"],
                     "stressLocation": structural["stressLocation"],
@@ -355,10 +429,7 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
         "warnings": [
             {
                 "code": "ANSYS_RESULT_UNIT_SYSTEM_NOT_DECLARED",
-                "message": (
-                    "MAPDL binary results are solver-native; FEMagent does not infer physical units "
-                    "or interpret result-set abscissa values as seconds"
-                ),
+                "message": "MAPDL binary results are solver-native; FEMagent does not infer physical units or interpret result-set abscissa values as seconds",
             }
         ],
         "observations": {**summary, "binaryResult": description},
@@ -380,12 +451,7 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
             "integrityStatus": "LIMITED",
             "abscissa": None,
             "queryCapabilities": [],
-            "warnings": [
-                {
-                    "code": "RESULT_READER_NOT_AVAILABLE",
-                    "message": f"Result reader is not available for solver {solver_name}",
-                }
-            ],
+            "warnings": [{"code": "RESULT_READER_NOT_AVAILABLE", "message": f"Result reader is not available for solver {solver_name}"}],
             "observations": manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {},
         }
 
@@ -410,14 +476,8 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
         "caseFingerprint": manifest["caseFingerprint"],
         "runManifest": workspace_relative_path(workspace, manifest_path),
         "solver": solver,
-        "model": {
-            "path": model_path,
-            "bundleFingerprint": bundle_fingerprint,
-        },
-        "integrity": {
-            "status": details["integrityStatus"],
-            "artifacts": artifacts,
-        },
+        "model": {"path": model_path, "bundleFingerprint": bundle_fingerprint},
+        "integrity": {"status": details["integrityStatus"], "artifacts": artifacts},
         "abscissa": details["abscissa"],
         "queryCapabilities": details["queryCapabilities"],
         "observations": details["observations"],
@@ -443,16 +503,8 @@ def _validated_paging(query: dict[str, Any]) -> tuple[int, int]:
     limit = query.get("limit", 500)
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
         raise FemCoreError("INVALID_RESULT_QUERY", "Result query offset must be a non-negative integer")
-    if (
-        not isinstance(limit, int)
-        or isinstance(limit, bool)
-        or limit <= 0
-        or limit > _MAX_RESULT_SERIES_SAMPLES
-    ):
-        raise FemCoreError(
-            "INVALID_RESULT_QUERY",
-            f"Result query limit must be between 1 and {_MAX_RESULT_SERIES_SAMPLES}",
-        )
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0 or limit > _MAX_RESULT_SERIES_SAMPLES:
+        raise FemCoreError("INVALID_RESULT_QUERY", f"Result query limit must be between 1 and {_MAX_RESULT_SERIES_SAMPLES}")
     return offset, limit
 
 
@@ -499,6 +551,7 @@ def _matching_capability(result_manifest: dict[str, Any], query: dict[str, Any])
             capability.get("quantity") == query["quantity"]
             and capability.get("component") == query["component"]
             and capability.get("target") == query["target"]
+            and capability.get("location") == query.get("location")
         ):
             return capability
     raise FemCoreError(
@@ -508,6 +561,7 @@ def _matching_capability(result_manifest: dict[str, Any], query: dict[str, Any])
             "quantity": query["quantity"],
             "component": query["component"],
             "target": query["target"],
+            "location": query.get("location"),
         },
     )
 
@@ -569,16 +623,8 @@ def _attach_summary_or_series(
     offset = normalized["offset"]
     limit = normalized["limit"]
     end = min(offset + limit, len(values))
-    response["series"] = [
-        {"abscissa": abscissa[index], "value": values[index]}
-        for index in range(offset, end)
-    ]
-    response["paging"] = {
-        "offset": offset,
-        "limit": limit,
-        "returned": max(0, end - offset),
-        "total": len(values),
-    }
+    response["series"] = [{"abscissa": abscissa[index], "value": values[index]} for index in range(offset, end)]
+    response["paging"] = {"offset": offset, "limit": limit, "returned": max(0, end - offset), "total": len(values)}
     return response
 
 
@@ -589,12 +635,38 @@ def _query_open_sees(
     normalized: dict[str, Any],
 ) -> dict[str, Any]:
     capability = _matching_capability(result_manifest, normalized)
+    source_channel_id = capability.get("sourceChannelId")
+    if isinstance(source_channel_id, str):
+        structural_path = run_manifest["outputs"].get("structuralResponse")
+        if not isinstance(structural_path, str):
+            raise FemCoreError("RESULT_SERIES_UNAVAILABLE", "This OpenSees run did not record structural responses")
+        structural_file = resolve_workspace_file(workspace, structural_path)
+        structural = _read_structural_response(structural_file)
+        channel = next(
+            (item for item in structural["channels"] if item["channelId"] == source_channel_id),
+            None,
+        )
+        if channel is None:
+            raise FemCoreError("RESULT_SERIES_UNAVAILABLE", "Recorded structural response channel is missing")
+        response = _base_query_response(
+            result_manifest,
+            normalized,
+            unit=channel["unit"],
+            reference_frame=channel["referenceFrame"],
+            abscissa_semantic=channel["abscissaSemantic"],
+            abscissa_unit=channel["abscissaUnit"],
+            source={"artifact": workspace_relative_path(workspace, structural_file), "channelId": source_channel_id},
+        )
+        return _attach_summary_or_series(
+            response,
+            normalized,
+            abscissa=channel["abscissaValues"],
+            values=channel["values"],
+        )
+
     response_path = run_manifest["outputs"].get("responseCsv")
     if not isinstance(response_path, str):
-        raise FemCoreError(
-            "RESULT_SERIES_UNAVAILABLE",
-            "This OpenSees run did not record a standard response series",
-        )
+        raise FemCoreError("RESULT_SERIES_UNAVAILABLE", "This OpenSees run did not record a standard response series")
     response_file = resolve_workspace_file(workspace, response_path)
     series = _read_open_sees_response(response_file)
     source_column = str(capability["sourceColumn"])
@@ -605,17 +677,9 @@ def _query_open_sees(
         reference_frame=str(capability.get("referenceFrame")),
         abscissa_semantic="TIME",
         abscissa_unit="s",
-        source={
-            "artifact": workspace_relative_path(workspace, response_file),
-            "column": source_column,
-        },
+        source={"artifact": workspace_relative_path(workspace, response_file), "column": source_column},
     )
-    return _attach_summary_or_series(
-        response,
-        normalized,
-        abscissa=series["time_s"],
-        values=series[source_column],
-    )
+    return _attach_summary_or_series(response, normalized, abscissa=series["time_s"], values=series[source_column])
 
 
 def _query_ansys(
@@ -626,12 +690,9 @@ def _query_ansys(
 ) -> dict[str, Any]:
     binary_path = run_manifest["outputs"].get("binaryResult")
     if not isinstance(binary_path, str):
-        raise FemCoreError(
-            "RESULT_SERIES_UNAVAILABLE",
-            "This ANSYS run did not record a MAPDL binary result artifact",
-        )
+        raise FemCoreError("RESULT_SERIES_UNAVAILABLE", "This ANSYS run did not record a MAPDL binary result artifact")
     binary_file = resolve_workspace_file(workspace, binary_path)
-    if normalized["quantity"] in {"STRESS", "PRINCIPAL_STRESS"}:
+    if normalized["quantity"] in {"STRESS", "PRINCIPAL_STRESS", "GENERALIZED_FORCE"}:
         data = query_ansys_structural_result(
             binary_file,
             quantity=normalized["quantity"],
@@ -657,12 +718,7 @@ def _query_ansys(
     )
     if "stressLocation" in data:
         response["stressLocation"] = data["stressLocation"]
-    return _attach_summary_or_series(
-        response,
-        normalized,
-        abscissa=data["abscissaValues"],
-        values=data["values"],
-    )
+    return _attach_summary_or_series(response, normalized, abscissa=data["abscissaValues"], values=data["values"])
 
 
 def query_result(workspace: Path, run_ref: str, query: dict[str, Any]) -> dict[str, Any]:
