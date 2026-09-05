@@ -13,6 +13,7 @@ from .models import ROLE_TYPES
 
 _ROLE_ID = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+_ENTITY_TYPES = {"NODE", "ELEMENT"}
 
 
 def _invalid(message: str, **details: Any) -> FemCoreError:
@@ -82,24 +83,27 @@ def load_semantic_manifest(workspace: Path, manifest_path: str) -> dict[str, Any
             )
 
         entity = raw_role.get("entity")
-        if not isinstance(entity, dict) or entity.get("type") != "NODE":
+        entity_type = entity.get("type") if isinstance(entity, dict) else None
+        if entity_type not in _ENTITY_TYPES:
             raise _invalid(
-                "PR13 semantic roles support only NODE entities",
+                "PR15 semantic roles support only NODE or ELEMENT entities",
                 roleIndex=index,
+                entityType=entity_type,
             )
-        node_id = entity.get("id")
-        if not isinstance(node_id, int) or isinstance(node_id, bool) or node_id <= 0:
+        entity_id = entity.get("id")
+        if not isinstance(entity_id, int) or isinstance(entity_id, bool) or entity_id <= 0:
             raise _invalid(
-                "Semantic role NODE id must be a positive integer",
+                "Semantic role entity id must be a positive integer",
                 roleIndex=index,
-                nodeId=node_id,
+                entityType=entity_type,
+                entityId=entity_id,
             )
 
         roles.append(
             {
                 "roleId": role_id,
                 "roleType": role_type,
-                "entity": {"type": "NODE", "id": node_id},
+                "entity": {"type": entity_type, "id": entity_id},
             }
         )
 
