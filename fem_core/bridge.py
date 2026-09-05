@@ -11,6 +11,8 @@ from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
 from fem_core.result_intelligence import inspect_result, query_result
+from fem_core.semantic_roles import inspect_semantic_roles, resolve_semantic_role
+from fem_core.semantic_roles.evidence import project_role_evidence
 from fem_core.solvers import get_solver_adapter
 
 
@@ -107,6 +109,19 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 _required_object(payload, "mapping"),
                 output_path=output_path,
             )
+        elif command == "semantic.inspect":
+            result = inspect_semantic_roles(
+                workspace,
+                model_path=_required_text(payload, "modelPath"),
+                manifest_path=_required_text(payload, "manifestPath"),
+            )
+        elif command == "semantic.resolve":
+            result = resolve_semantic_role(
+                workspace,
+                model_path=_required_text(payload, "modelPath"),
+                manifest_path=_required_text(payload, "manifestPath"),
+                role_id=_required_text(payload, "roleId"),
+            )
         elif command == "result.inspect":
             result = inspect_result(workspace, _required_text(payload, "runRef"))
         elif command == "result.query":
@@ -122,6 +137,22 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 run_ref=_required_text(payload, "runRef"),
                 evidence_id=_required_text(payload, "evidenceId"),
                 query=_required_object(payload, "query"),
+            )
+        elif command == "evidence.projectRole":
+            query = _required_object(payload, "query")
+            result = project_role_evidence(
+                workspace,
+                project_id=_required_text(payload, "projectId"),
+                model_path=_required_text(payload, "modelPath"),
+                manifest_path=_required_text(payload, "manifestPath"),
+                role_id=_required_text(payload, "roleId"),
+                run_ref=_required_text(payload, "runRef"),
+                evidence_id=_required_text(payload, "evidenceId"),
+                quantity=_required_text(query, "quantity"),
+                component=_required_text(query, "component"),
+                operation=_required_text(query, "operation"),
+                offset=query.get("offset", 0),
+                limit=query.get("limit", 500),
             )
         elif command == "solver.status":
             result = get_solver_adapter(_required_text(payload, "solver")).status()
