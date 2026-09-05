@@ -84,13 +84,14 @@ def normalize_structural_query(query: dict[str, Any]) -> dict[str, Any]:
         location = _upper_string(query.get("location"), field="location")
         if location not in GENERALIZED_FORCE_LOCATIONS:
             raise _invalid("Generalized force location must be END_I, END_J, or SECTION", location=location)
-    elif quantity == "DAMPER_RESPONSE":
-        if target_type != "ELEMENT" or component not in DAMPER_COMPONENTS:
-            raise _invalid(
-                "Damper response requires an ELEMENT target and controlled damper component",
-                targetType=target_type,
-                component=component,
-            )
+    elif quantity == "DAMPER_RESPONSE" and (
+        target_type != "ELEMENT" or component not in DAMPER_COMPONENTS
+    ):
+        raise _invalid(
+            "Damper response requires an ELEMENT target and controlled damper component",
+            targetType=target_type,
+            component=component,
+        )
 
     normalized: dict[str, Any] = {
         "quantity": quantity,
