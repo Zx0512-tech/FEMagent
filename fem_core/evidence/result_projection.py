@@ -8,8 +8,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from .projection import project_claim
 from .models import EngineeringEvidence
+from .projection import project_claim
+
+_RESULT_METRIC_KEYS = (
+    "quantity",
+    "target",
+    "component",
+    "unit",
+    "referenceFrame",
+    "operation",
+    "abscissa",
+    "summary",
+    "series",
+    "value",
+)
 
 
 def project_result_evidence(
@@ -18,19 +31,27 @@ def project_result_evidence(
     result: dict[str, Any],
     artifact: str | None,
     artifact_sha256: str | None,
+    provenance: dict[str, Any] | None = None,
 ) -> EngineeringEvidence:
-    """Promote a result query payload only when provenance is supplied."""
+    """Promote a Result Intelligence payload only with auditable provenance."""
 
-    metric = {
-        key: value
-        for key, value in result.items()
-        if key in {"value", "unit", "node", "component"}
-    }
+    metric = {key: result[key] for key in _RESULT_METRIC_KEYS if key in result}
+    target = result.get("target")
+    entity = dict(target) if isinstance(target, dict) else {}
+    component = result.get("component")
+    if isinstance(component, str) and component:
+        entity["component"] = component
+
+    quantity = result.get("quantity")
+    quantity_text = quantity if isinstance(quantity, str) and quantity else "RESULT"
+    claim = f"Recorded {quantity_text} engineering response"
 
     return project_claim(
         evidence_id=evidence_id,
-        claim="Result intelligence extracted engineering response",
+        claim=claim,
         artifact=artifact,
         sha256=artifact_sha256,
         metric=metric,
+        entity=entity,
+        provenance=provenance,
     )
