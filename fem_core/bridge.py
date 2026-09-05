@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from fem_core.cross_solver import validate_cross_solver
 from fem_core.errors import FemCoreError
 from fem_core.evidence.api import project_run_evidence
 from fem_core.health import build_health_report
@@ -153,6 +154,14 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 operation=_required_text(query, "operation"),
                 offset=query.get("offset", 0),
                 limit=query.get("limit", 500),
+            )
+        elif command == "validation.crossSolver":
+            result = validate_cross_solver(
+                workspace,
+                project_id=_required_text(payload, "projectId"),
+                left=_required_object(payload, "left"),
+                right=_required_object(payload, "right"),
+                query=_required_object(payload, "query"),
             )
         elif command == "solver.status":
             result = get_solver_adapter(_required_text(payload, "solver")).status()

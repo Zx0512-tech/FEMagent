@@ -29,6 +29,11 @@ import type {
   FemSolverRun,
   FemSolverStatus,
 } from "./solverTypes.js";
+import type {
+  FemCrossSolverQueryRequest,
+  FemCrossSolverSideRequest,
+  FemCrossSolverValidationReport,
+} from "./validationTypes.js";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -280,6 +285,22 @@ export async function runFemRoleEvidenceProject(
     cwd,
     "evidence.projectRole",
     { projectId, modelPath, manifestPath, roleId, runRef, evidenceId, query },
+    { signal },
+  );
+}
+
+export async function runFemCrossSolverValidation(
+  cwd: string,
+  projectId: string,
+  left: FemCrossSolverSideRequest,
+  right: FemCrossSolverSideRequest,
+  query: FemCrossSolverQueryRequest,
+  signal?: AbortSignal,
+): Promise<FemCrossSolverValidationReport> {
+  return await runFemCoreRequest<FemCrossSolverValidationReport>(
+    cwd,
+    "validation.crossSolver",
+    { projectId, left, right, query },
     { signal },
   );
 }
