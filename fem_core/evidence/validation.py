@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import EvidenceStatus, EngineeringEvidence
+from .models import EngineeringEvidence, EvidenceStatus
 
 
 def validate_evidence(evidence: EngineeringEvidence) -> EvidenceStatus:
