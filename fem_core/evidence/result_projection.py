@@ -15,6 +15,8 @@ _RESULT_METRIC_KEYS = (
     "quantity",
     "target",
     "component",
+    "location",
+    "stressLocation",
     "unit",
     "referenceFrame",
     "operation",
