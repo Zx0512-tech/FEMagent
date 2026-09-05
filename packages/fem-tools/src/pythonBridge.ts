@@ -18,6 +18,11 @@ import type {
   FemResultQueryRequest,
 } from "./resultTypes.js";
 import type {
+  FemRoleEvidenceQueryRequest,
+  FemSemanticRoleInspection,
+  FemSemanticRoleResolution,
+} from "./semanticTypes.js";
+import type {
   FemSolverKey,
   FemSolverOptions,
   FemSolverPreflight,
@@ -164,7 +169,7 @@ export async function runFemCoreRequest<T>(
     options.signal?.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
       child.kill();
-      fail(new FemBridgeError("BRIDGE_TIMEOUT", `FEM bridge request exceeded ${timeoutMs} ms`));
+      fail(new FemBridgeError("BRIDGE_TIMEOUT", `fem_core request exceeded ${timeoutMs} ms`));
     }, timeoutMs);
 
     child.stdin.end(JSON.stringify({ protocol: FEM_BRIDGE_PROTOCOL, requestId, command, payload }));
@@ -198,6 +203,35 @@ export async function runFemLoadStandardize(
   );
 }
 
+export async function runFemSemanticInspect(
+  cwd: string,
+  modelPath: string,
+  manifestPath: string,
+  signal?: AbortSignal,
+): Promise<FemSemanticRoleInspection> {
+  return await runFemCoreRequest<FemSemanticRoleInspection>(
+    cwd,
+    "semantic.inspect",
+    { modelPath, manifestPath },
+    { signal },
+  );
+}
+
+export async function runFemSemanticResolve(
+  cwd: string,
+  modelPath: string,
+  manifestPath: string,
+  roleId: string,
+  signal?: AbortSignal,
+): Promise<FemSemanticRoleResolution> {
+  return await runFemCoreRequest<FemSemanticRoleResolution>(
+    cwd,
+    "semantic.resolve",
+    { modelPath, manifestPath, roleId },
+    { signal },
+  );
+}
+
 export async function runFemResultInspect(
   cwd: string,
   runRef: string,
@@ -227,6 +261,25 @@ export async function runFemEvidenceProject(
     cwd,
     "evidence.project",
     { projectId, runRef, evidenceId, query },
+    { signal },
+  );
+}
+
+export async function runFemRoleEvidenceProject(
+  cwd: string,
+  projectId: string,
+  modelPath: string,
+  manifestPath: string,
+  roleId: string,
+  runRef: string,
+  evidenceId: string,
+  query: FemRoleEvidenceQueryRequest,
+  signal?: AbortSignal,
+): Promise<FemEngineeringEvidenceReport> {
+  return await runFemCoreRequest<FemEngineeringEvidenceReport>(
+    cwd,
+    "evidence.projectRole",
+    { projectId, modelPath, manifestPath, roleId, runRef, evidenceId, query },
     { signal },
   );
 }
