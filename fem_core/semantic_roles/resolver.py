@@ -7,7 +7,7 @@ from fem_core.errors import FemCoreError
 from fem_core.model_inspection import inspect_model
 
 from .manifest import load_semantic_manifest
-from .models import NOT_STATICALLY_ENUMERABLE, RESOLVED, STATICALLY_CONFIRMED, UNRESOLVED
+from .models import NOT_STATICALLY_ENUMERABLE, RESOLVED, STATICALLY_CONFIRMED
 
 
 def _current_fingerprint(model: dict[str, Any]) -> str:
@@ -67,7 +67,6 @@ def _role_result(
     node_tags: set[int] | None,
     model_fingerprint: str,
     manifest_sha256: str,
-    direct_resolution: bool,
 ) -> dict[str, Any]:
     node_id = role["entity"]["id"]
     if node_tags is not None and node_id not in node_tags:
@@ -82,7 +81,7 @@ def _role_result(
         "roleId": role["roleId"],
         "roleType": role["roleType"],
         "entity": dict(role["entity"]),
-        "status": RESOLVED if direct_resolution or node_tags is not None else UNRESOLVED,
+        "status": RESOLVED,
         "entityValidation": entity_validation,
         "modelBundleFingerprint": model_fingerprint,
         "manifestSha256": manifest_sha256,
@@ -106,11 +105,12 @@ def inspect_semantic_roles(
             node_tags=node_tags,
             model_fingerprint=model_fingerprint,
             manifest_sha256=manifest_meta["sha256"],
-            direct_resolution=False,
         )
         for role in semantic_manifest["roles"]
     ]
-    unresolved = any(role["status"] == UNRESOLVED for role in roles)
+    not_statically_enumerable = any(
+        role["entityValidation"] == NOT_STATICALLY_ENUMERABLE for role in roles
+    )
     warnings = (
         [
             {
@@ -118,7 +118,7 @@ def inspect_semantic_roles(
                 "message": "Current Model Intelligence cannot fully enumerate NODE topology; explicit role declarations are retained without static entity confirmation",
             }
         ]
-        if unresolved
+        if not_statically_enumerable
         else []
     )
 
@@ -126,7 +126,7 @@ def inspect_semantic_roles(
     return {
         "schemaVersion": "1.0",
         "kind": "semantic_role_inspection",
-        "status": UNRESOLVED if unresolved else RESOLVED,
+        "status": RESOLVED,
         "model": {
             "path": source.get("path", model_path),
             "bundleFingerprint": model_fingerprint,
@@ -161,7 +161,6 @@ def resolve_semantic_role(
         node_tags=node_tags,
         model_fingerprint=model_fingerprint,
         manifest_sha256=semantic_manifest["manifest"]["sha256"],
-        direct_resolution=True,
     )
     return {
         "schemaVersion": "1.0",
