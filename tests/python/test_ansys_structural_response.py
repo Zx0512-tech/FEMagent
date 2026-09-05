@@ -6,6 +6,7 @@ import shutil
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
 from ansys.mapdl import reader as pymapdl_reader
 from ansys.mapdl.reader import examples
 
@@ -13,6 +14,7 @@ from fem_core.ansys_result_reader import (
     describe_ansys_binary_result,
     query_ansys_structural_result,
 )
+from fem_core.errors import FemCoreError
 from fem_core.result_intelligence import inspect_result, query_result
 
 
@@ -58,6 +60,11 @@ def _first_finite_node(raw, method_name: str, component_index: int) -> int:
         if component_index < len(row) and math.isfinite(float(row[component_index])):
             return int(node)
     raise AssertionError(f"Packaged RST has no finite {method_name} component {component_index}")
+
+
+def _first_element_id(raw) -> int:
+    _stress, elements, _nodes = raw.element_stress(0)
+    return int(elements[0])
 
 
 def test_queries_real_nodal_component_stress_without_inventing_units() -> None:
@@ -140,3 +147,58 @@ def test_result_intelligence_exposes_and_queries_real_ansys_seqv(tmp_path: Path)
     assert result["unit"] is None
     assert result["stressLocation"] == "NODAL_AVERAGED"
     assert result["summary"]["sampleCount"] >= 1
+
+
+def test_element_stress_requires_explicit_native_location_instead_of_silent_collapse() -> None:
+    path = Path(examples.rstfile)
+    raw = pymapdl_reader.read_binary(path, parse_vtk=False)
+    element_id = _first_element_id(raw)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        query_ansys_structural_result(
+            path,
+            quantity="STRESS",
+            target={"type": "ELEMENT", "id": element_id},
+            component="SX",
+        )
+
+    assert exc_info.value.code == "STRUCTURAL_RESPONSE_LOCATION_REQUIRED"
+
+
+def test_generalized_force_fails_closed_without_proven_formulation_mapping() -> None:
+    path = Path(examples.rstfile)
+    raw = pymapdl_reader.read_binary(path, parse_vtk=False)
+    element_id = _first_element_id(raw)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        query_ansys_structural_result(
+            path,
+            quantity="GENERALIZED_FORCE",
+            target={"type": "ELEMENT", "id": element_id},
+            component="MY",
+            location="END_I",
+        )
+
+    assert exc_info.value.code == "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE"
+
+
+def test_result_intelligence_preserves_generalized_force_mapping_error(tmp_path: Path) -> None:
+    run_dir = _write_ansys_run(tmp_path)
+    binary = run_dir / "fem_result.rst"
+    raw = pymapdl_reader.read_binary(binary, parse_vtk=False)
+    element_id = _first_element_id(raw)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        query_result(
+            tmp_path,
+            run_dir.name,
+            {
+                "quantity": "GENERALIZED_FORCE",
+                "target": {"type": "ELEMENT", "id": element_id},
+                "component": "MY",
+                "location": "END_I",
+                "operation": "SUMMARY",
+            },
+        )
+
+    assert exc_info.value.code == "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE"
