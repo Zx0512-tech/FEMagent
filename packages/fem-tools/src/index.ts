@@ -14,6 +14,13 @@ export {
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
 export {
+  type FemEngineeringEvidence,
+  type FemEngineeringEvidenceMetric,
+  type FemEngineeringEvidenceReport,
+  type FemEvidenceArtifactRef,
+  type FemEvidenceStatus,
+} from "./evidenceTypes.js";
+export {
   type FemAnyModelInspection,
   type FemModelBundleDependency,
   type FemModelBundleFile,
@@ -42,6 +49,7 @@ export {
   FemBridgeError,
   FemCoreError,
   runFemCoreRequest,
+  runFemEvidenceProject,
   runFemHealth,
   runFemLoadInspect,
   runFemLoadStandardize,
