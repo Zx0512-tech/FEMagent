@@ -140,10 +140,18 @@ def test_dynamic_opensees_role_is_resolved_but_not_statically_enumerable(tmp_pat
         manifest_path="semantic-roles.json",
         role_id="TOWER_BASE_LEFT",
     )
+    inspection = inspect_semantic_roles(
+        tmp_path,
+        model_path="model.py",
+        manifest_path="semantic-roles.json",
+    )
 
     assert result["status"] == "RESOLVED"
     assert result["entity"] == {"type": "NODE", "id": 2}
     assert result["entityValidation"] == "NOT_STATICALLY_ENUMERABLE"
+    assert inspection["status"] == "RESOLVED"
+    assert inspection["roles"][0]["status"] == "RESOLVED"
+    assert inspection["roles"][0]["entityValidation"] == "NOT_STATICALLY_ENUMERABLE"
 
 
 @pytest.mark.parametrize(
