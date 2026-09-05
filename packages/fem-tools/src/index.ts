@@ -56,9 +56,19 @@ export {
   type FemSolverStatus,
 } from "./solverTypes.js";
 export {
+  type FemCrossSolverComparison,
+  type FemCrossSolverLimitation,
+  type FemCrossSolverQueryRequest,
+  type FemCrossSolverSideProjection,
+  type FemCrossSolverSideRequest,
+  type FemCrossSolverValidationReport,
+  type FemCrossSolverValidationStatus,
+} from "./validationTypes.js";
+export {
   FemBridgeError,
   FemCoreError,
   runFemCoreRequest,
+  runFemCrossSolverValidation,
   runFemEvidenceProject,
   runFemHealth,
   runFemLoadInspect,
