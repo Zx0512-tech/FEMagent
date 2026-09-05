@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import EvidenceArtifactRef, EvidenceStatus, EngineeringEvidence
+from .models import EngineeringEvidence, EvidenceArtifactRef, EvidenceStatus
 from .validation import validate_evidence
 
 
