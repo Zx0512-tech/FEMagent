@@ -8,9 +8,14 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from fem_core.ansys_result_reader import describe_ansys_binary_result, query_ansys_nodal_result
+from fem_core.ansys_result_reader import (
+    describe_ansys_binary_result,
+    query_ansys_nodal_result,
+    query_ansys_structural_result,
+)
 from fem_core.errors import FemCoreError
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
+from fem_core.structural_response import normalize_structural_query
 
 _OPEN_SEES_RESPONSE_COLUMNS = (
     "time_s",
@@ -40,6 +45,12 @@ _COMPONENT_ALIASES = {
     "3": "Z",
 }
 _ANSYS_DOF_TO_AXIS = {"UX": "X", "UY": "Y", "UZ": "Z"}
+_ANSYS_LEGACY_NODE_QUANTITIES = frozenset(
+    {"DISPLACEMENT", "VELOCITY", "ACCELERATION", "REACTION_FORCE"}
+)
+_STRUCTURAL_QUERY_QUANTITIES = frozenset(
+    {"STRESS", "PRINCIPAL_STRESS", "GENERALIZED_FORCE", "DAMPER_RESPONSE"}
+)
 _MAX_RESULT_SERIES_SAMPLES = 5000
 
 
@@ -302,6 +313,7 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
 
     binary_file = resolve_workspace_file(workspace, binary_path)
     description = describe_ansys_binary_result(binary_file)
+    source_artifact = workspace_relative_path(workspace, binary_file)
     axes = [
         _ANSYS_DOF_TO_AXIS[dof]
         for dof in description["dofLabels"]
@@ -314,11 +326,28 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
             "target": {"type": "NODE", "selection": "RECORDED_NODE_IDS"},
             "unit": None,
             "referenceFrame": "SOLVER_NATIVE",
-            "sourceArtifact": workspace_relative_path(workspace, binary_file),
+            "sourceArtifact": source_artifact,
         }
         for quantity in description["quantities"]
+        if quantity in _ANSYS_LEGACY_NODE_QUANTITIES
         for axis in axes
     ]
+    for structural in description.get("structuralCapabilities", []):
+        for component in structural.get("components", []):
+            capabilities.append(
+                {
+                    "quantity": structural["quantity"],
+                    "component": component,
+                    "target": {
+                        "type": structural["targetType"],
+                        "selection": "RECORDED_NODE_IDS",
+                    },
+                    "unit": None,
+                    "referenceFrame": structural["referenceFrame"],
+                    "stressLocation": structural["stressLocation"],
+                    "sourceArtifact": source_artifact,
+                }
+            )
     return {
         "integrityStatus": "VALID",
         "abscissa": description["abscissa"],
@@ -327,7 +356,7 @@ def _ansys_result_manifest(workspace: Path, manifest: dict[str, Any]) -> dict[st
             {
                 "code": "ANSYS_RESULT_UNIT_SYSTEM_NOT_DECLARED",
                 "message": (
-                    "MAPDL binary results are solver-native; PR9 does not infer physical units "
+                    "MAPDL binary results are solver-native; FEMagent does not infer physical units "
                     "or interpret result-set abscissa values as seconds"
                 ),
             }
@@ -354,7 +383,7 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
             "warnings": [
                 {
                     "code": "RESULT_READER_NOT_AVAILABLE",
-                    "message": f"PR9 result reader is not available for solver {solver_name}",
+                    "message": f"Result reader is not available for solver {solver_name}",
                 }
             ],
             "observations": manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {},
@@ -409,21 +438,7 @@ def _normalized_component(value: Any) -> str:
     return normalized
 
 
-def _validated_query(query: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(query, dict):
-        raise FemCoreError("INVALID_RESULT_QUERY", "Result query must be a JSON object")
-    quantity = query.get("quantity")
-    operation = query.get("operation")
-    target = query.get("target")
-    if not isinstance(quantity, str) or not quantity.strip():
-        raise FemCoreError("INVALID_RESULT_QUERY", "Result query quantity must be a non-empty string")
-    if not isinstance(operation, str) or operation.strip().upper() not in {"SUMMARY", "SERIES"}:
-        raise FemCoreError("INVALID_RESULT_QUERY", "Result query operation must be SUMMARY or SERIES")
-    if not isinstance(target, dict) or str(target.get("type") or "").upper() != "NODE":
-        raise FemCoreError("INVALID_RESULT_QUERY", "PR9 result queries require a NODE target")
-    target_id = target.get("id")
-    if not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
-        raise FemCoreError("INVALID_RESULT_QUERY", "Result query node id must be a positive integer")
+def _validated_paging(query: dict[str, Any]) -> tuple[int, int]:
     offset = query.get("offset", 0)
     limit = query.get("limit", 500)
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
@@ -438,8 +453,38 @@ def _validated_query(query: dict[str, Any]) -> dict[str, Any]:
             "INVALID_RESULT_QUERY",
             f"Result query limit must be between 1 and {_MAX_RESULT_SERIES_SAMPLES}",
         )
+    return offset, limit
+
+
+def _validated_query(query: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(query, dict):
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query must be a JSON object")
+    quantity = query.get("quantity")
+    operation = query.get("operation")
+    target = query.get("target")
+    if not isinstance(quantity, str) or not quantity.strip():
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query quantity must be a non-empty string")
+    if not isinstance(operation, str) or operation.strip().upper() not in {"SUMMARY", "SERIES"}:
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query operation must be SUMMARY or SERIES")
+    if not isinstance(target, dict):
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query target must be a JSON object")
+
+    normalized_quantity = quantity.strip().upper()
+    target_type = str(target.get("type") or "").strip().upper()
+    offset, limit = _validated_paging(query)
+    if normalized_quantity in _STRUCTURAL_QUERY_QUANTITIES or target_type == "ELEMENT":
+        normalized = normalize_structural_query(query)
+        normalized["offset"] = offset
+        normalized["limit"] = limit
+        return normalized
+
+    if target_type != "NODE":
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query requires a NODE target")
+    target_id = target.get("id")
+    if not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
+        raise FemCoreError("INVALID_RESULT_QUERY", "Result query node id must be a positive integer")
     return {
-        "quantity": quantity.strip().upper(),
+        "quantity": normalized_quantity,
         "operation": operation.strip().upper(),
         "target": {"type": "NODE", "id": target_id},
         "component": _normalized_component(query.get("component")),
@@ -477,7 +522,7 @@ def _base_query_response(
     abscissa_unit: str | None,
     source: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    response = {
         "schemaVersion": "1.0",
         "kind": "result_query",
         "runId": result_manifest["runId"],
@@ -492,6 +537,9 @@ def _base_query_response(
         "abscissa": {"semantic": abscissa_semantic, "unit": abscissa_unit},
         "source": source,
     }
+    if "location" in normalized:
+        response["location"] = normalized["location"]
+    return response
 
 
 def _attach_summary_or_series(
@@ -583,12 +631,21 @@ def _query_ansys(
             "This ANSYS run did not record a MAPDL binary result artifact",
         )
     binary_file = resolve_workspace_file(workspace, binary_path)
-    data = query_ansys_nodal_result(
-        binary_file,
-        quantity=normalized["quantity"],
-        node_id=normalized["target"]["id"],
-        component=normalized["component"],
-    )
+    if normalized["quantity"] in {"STRESS", "PRINCIPAL_STRESS"}:
+        data = query_ansys_structural_result(
+            binary_file,
+            quantity=normalized["quantity"],
+            target=normalized["target"],
+            component=normalized["component"],
+            location=normalized.get("location"),
+        )
+    else:
+        data = query_ansys_nodal_result(
+            binary_file,
+            quantity=normalized["quantity"],
+            node_id=normalized["target"]["id"],
+            component=normalized["component"],
+        )
     response = _base_query_response(
         result_manifest,
         normalized,
@@ -598,6 +655,8 @@ def _query_ansys(
         abscissa_unit=data["abscissaUnit"],
         source={"artifact": workspace_relative_path(workspace, binary_file)},
     )
+    if "stressLocation" in data:
+        response["stressLocation"] = data["stressLocation"]
     return _attach_summary_or_series(
         response,
         normalized,
