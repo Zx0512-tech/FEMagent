@@ -44,6 +44,9 @@ async function createSemanticWorkspace(): Promise<{
     "utf8",
   );
   const inspection = await runFemModelInspect(cwd, modelPath);
+  if (inspection.format !== "OPENSEES_PYTHON") {
+    throw new Error("semantic bridge fixture must inspect as OpenSees Python");
+  }
   const fingerprint = inspection.bundle.bundleFingerprint;
 
   const manifestPath = path.posix.join(relativeRoot, "semantic-roles.json");
