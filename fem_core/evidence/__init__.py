@@ -11,8 +11,8 @@ from .result_projection import project_result_evidence
 from .validation import validate_evidence
 
 __all__ = [
-    "EvidenceStatus",
     "EngineeringEvidence",
+    "EvidenceStatus",
     "project_claim",
     "project_result_evidence",
     "project_run_evidence",
