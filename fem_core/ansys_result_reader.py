@@ -27,6 +27,8 @@ _COMPONENT_ALIASES = {
     "3": "UZ",
 }
 _DOF_TO_AXIS = {"UX": "X", "UY": "Y", "UZ": "Z"}
+_STRESS_COMPONENT_INDEX = {"SX": 0, "SY": 1, "SZ": 2, "SXY": 3, "SYZ": 4, "SXZ": 5}
+_PRINCIPAL_STRESS_COMPONENT_INDEX = {"S1": 0, "S2": 1, "S3": 2, "SINT": 3, "SEQV": 4}
 
 
 def _reader_module():
@@ -94,6 +96,8 @@ def _result_dofs(result: Any) -> list[str]:
 
 
 def _available_quantity(result: Any, quantity: str) -> bool:
+    if int(result.nsets) <= 0:
+        return False
     try:
         if quantity == "DISPLACEMENT":
             return bool(result.available_results["NSL"])
@@ -104,7 +108,13 @@ def _available_quantity(result: Any, quantity: str) -> bool:
         if quantity == "REACTION_FORCE":
             result.nodal_reaction_forces(0)
             return True
-    except (AttributeError, IndexError, KeyError, ValueError):
+        if quantity == "STRESS":
+            result.nodal_stress(0)
+            return True
+        if quantity == "PRINCIPAL_STRESS":
+            result.principal_nodal_stress(0)
+            return True
+    except (AttributeError, IndexError, KeyError, RuntimeError, ValueError):
         return False
     return False
 
@@ -125,9 +135,37 @@ def describe_ansys_binary_result(path: Path) -> dict[str, Any]:
 
     quantities = [
         quantity
-        for quantity in ("DISPLACEMENT", "VELOCITY", "ACCELERATION", "REACTION_FORCE")
+        for quantity in (
+            "DISPLACEMENT",
+            "VELOCITY",
+            "ACCELERATION",
+            "REACTION_FORCE",
+            "STRESS",
+            "PRINCIPAL_STRESS",
+        )
         if _available_quantity(result, quantity)
     ]
+    structural_capabilities: list[dict[str, Any]] = []
+    if "STRESS" in quantities:
+        structural_capabilities.append(
+            {
+                "quantity": "STRESS",
+                "targetType": "NODE",
+                "components": list(_STRESS_COMPONENT_INDEX),
+                "stressLocation": "NODAL_AVERAGED",
+                "referenceFrame": "GLOBAL",
+            }
+        )
+    if "PRINCIPAL_STRESS" in quantities:
+        structural_capabilities.append(
+            {
+                "quantity": "PRINCIPAL_STRESS",
+                "targetType": "NODE",
+                "components": list(_PRINCIPAL_STRESS_COMPONENT_INDEX),
+                "stressLocation": "NODAL_AVERAGED",
+                "referenceFrame": "GLOBAL",
+            }
+        )
     return {
         "schemaVersion": "1.0",
         "kind": "ansys_binary_result",
@@ -137,6 +175,7 @@ def describe_ansys_binary_result(path: Path) -> dict[str, Any]:
         "nodeCount": node_count,
         "dofLabels": dofs,
         "quantities": quantities,
+        "structuralCapabilities": structural_capabilities,
         "abscissa": {
             "semantic": "SOLVER_NATIVE_RESULT_ABSCISSA",
             "unit": None,
@@ -268,6 +307,115 @@ def query_ansys_nodal_result(
         "sourceDof": source_dof,
         "unit": None,
         "referenceFrame": "SOLVER_NATIVE",
+        "abscissaSemantic": "SOLVER_NATIVE_RESULT_ABSCISSA",
+        "abscissaUnit": None,
+        "abscissaValues": abscissa,
+        "values": values,
+    }
+
+
+def _query_nodal_matrix_series(
+    result: Any,
+    *,
+    node_id: int,
+    method_name: str,
+    component_index: int,
+    label: str,
+) -> tuple[list[float], list[float]]:
+    values: list[float] = []
+    for rnum in range(int(result.nsets)):
+        try:
+            nnum, data = getattr(result, method_name)(rnum)
+        except (AttributeError, IndexError, KeyError, RuntimeError, ValueError) as exc:
+            raise FemCoreError(
+                "RESULT_SERIES_UNAVAILABLE",
+                "The ANSYS binary result does not contain a complete structural response series",
+                details={"resultSet": rnum, "quantity": label, "reason": str(exc)},
+            ) from exc
+        matches = [index for index, raw_node in enumerate(nnum) if int(raw_node) == node_id]
+        if len(matches) != 1:
+            raise FemCoreError(
+                "RESULT_SERIES_UNAVAILABLE",
+                "The requested ANSYS structural response node is not uniquely available",
+                details={"resultSet": rnum, "nodeId": node_id, "quantity": label},
+            )
+        row = data[matches[0]]
+        if component_index >= len(row):
+            raise FemCoreError(
+                "RESULT_SERIES_UNAVAILABLE",
+                "The requested ANSYS structural response component is unavailable",
+                details={"resultSet": rnum, "nodeId": node_id, "quantity": label},
+            )
+        value = float(row[component_index])
+        if not math.isfinite(value):
+            raise FemCoreError(
+                "RESULT_SERIES_UNAVAILABLE",
+                "The requested ANSYS structural response is non-finite",
+                details={"resultSet": rnum, "nodeId": node_id, "quantity": label},
+            )
+        values.append(value)
+    return _float_values(result.time_values, label="abscissa"), values
+
+
+def query_ansys_structural_result(
+    path: Path,
+    *,
+    quantity: str,
+    target: dict[str, Any],
+    component: str,
+    location: str | None = None,
+) -> dict[str, Any]:
+    normalized_quantity = str(quantity).strip().upper()
+    target_type = str(target.get("type") or "").strip().upper() if isinstance(target, dict) else ""
+    target_id = target.get("id") if isinstance(target, dict) else None
+    normalized_component = str(component).strip().upper()
+    if target_type != "NODE" or not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "PR15 ANSYS structural stress queries currently require a positive NODE target",
+            details={"target": target},
+        )
+    if location is not None:
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "Nodal averaged ANSYS stress does not accept an element location selector",
+            details={"location": location},
+        )
+
+    if normalized_quantity == "STRESS":
+        component_index = _STRESS_COMPONENT_INDEX.get(normalized_component)
+        method_name = "nodal_stress"
+    elif normalized_quantity == "PRINCIPAL_STRESS":
+        component_index = _PRINCIPAL_STRESS_COMPONENT_INDEX.get(normalized_component)
+        method_name = "principal_nodal_stress"
+    else:
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "Requested ANSYS structural response quantity is not supported by PR15",
+            details={"quantity": quantity},
+        )
+    if component_index is None:
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "Requested ANSYS structural response component is not supported",
+            details={"quantity": normalized_quantity, "component": component},
+        )
+
+    result = _open_result(path)
+    abscissa, values = _query_nodal_matrix_series(
+        result,
+        node_id=target_id,
+        method_name=method_name,
+        component_index=component_index,
+        label=f"{normalized_quantity}:{normalized_component}",
+    )
+    return {
+        "quantity": normalized_quantity,
+        "target": {"type": "NODE", "id": target_id},
+        "component": normalized_component,
+        "stressLocation": "NODAL_AVERAGED",
+        "unit": None,
+        "referenceFrame": "GLOBAL",
         "abscissaSemantic": "SOLVER_NATIVE_RESULT_ABSCISSA",
         "abscissaUnit": None,
         "abscissaValues": abscissa,
