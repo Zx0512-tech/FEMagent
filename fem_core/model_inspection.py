@@ -373,6 +373,7 @@ def _inspect_ansys_model(workspace: Path, raw_path: str, *, path: Path | None = 
             "bundleFingerprint": bundle["bundleFingerprint"],
             "topology": {
                 "nodeCount": {"value": exact_explicit_node_count, "basis": node_count_basis},
+                "nodeTags": sorted(explicit_node_ids) if exact_explicit_node_count is not None else None,
                 "elementCount": {"value": element_count, "basis": element_count_basis},
                 "coordinateBounds": _coordinate_bounds(bounds, coordinate_node_count),
                 "elementTypes": [

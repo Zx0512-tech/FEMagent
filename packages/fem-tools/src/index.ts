@@ -38,6 +38,16 @@ export {
   type FemResultQuerySummary,
 } from "./resultTypes.js";
 export {
+  type FemRoleEvidenceQueryRequest,
+  type FemSemanticEntityValidation,
+  type FemSemanticRoleEntity,
+  type FemSemanticRoleInspection,
+  type FemSemanticRoleRecord,
+  type FemSemanticRoleResolution,
+  type FemSemanticRoleStatus,
+  type FemSemanticRoleType,
+} from "./semanticTypes.js";
+export {
   type FemSolverDisplayName,
   type FemSolverExecutionMode,
   type FemSolverKey,
@@ -56,6 +66,9 @@ export {
   runFemModelInspect,
   runFemResultInspect,
   runFemResultQuery,
+  runFemRoleEvidenceProject,
+  runFemSemanticInspect,
+  runFemSemanticResolve,
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,

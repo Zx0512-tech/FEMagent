@@ -26,6 +26,10 @@ export interface FemResultManifest {
   caseFingerprint: string;
   runManifest: string;
   solver: Record<string, unknown> & { name: string };
+  model: {
+    path: string | null;
+    bundleFingerprint: string | null;
+  };
   integrity: {
     status: FemResultIntegrityStatus;
     artifacts: FemResultArtifact[];

@@ -360,6 +360,20 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
             "observations": manifest.get("summary") if isinstance(manifest.get("summary"), dict) else {},
         }
 
+    recorded_model = manifest.get("model")
+    if isinstance(recorded_model, dict):
+        recorded_model_path = recorded_model.get("path")
+        recorded_bundle_fingerprint = recorded_model.get("bundleFingerprint")
+    else:
+        recorded_model_path = None
+        recorded_bundle_fingerprint = None
+    model_path = recorded_model_path if isinstance(recorded_model_path, str) else None
+    bundle_fingerprint = (
+        recorded_bundle_fingerprint
+        if isinstance(recorded_bundle_fingerprint, str) and len(recorded_bundle_fingerprint) == 64
+        else None
+    )
+
     return {
         "schemaVersion": "1.0",
         "kind": "result_manifest",
@@ -367,6 +381,10 @@ def inspect_result(workspace: Path, run_ref: str) -> dict[str, Any]:
         "caseFingerprint": manifest["caseFingerprint"],
         "runManifest": workspace_relative_path(workspace, manifest_path),
         "solver": solver,
+        "model": {
+            "path": model_path,
+            "bundleFingerprint": bundle_fingerprint,
+        },
         "integrity": {
             "status": details["integrityStatus"],
             "artifacts": artifacts,
