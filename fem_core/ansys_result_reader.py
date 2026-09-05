@@ -275,6 +275,12 @@ def query_ansys_nodal_result(
     component: str,
 ) -> dict[str, Any]:
     normalized_quantity = str(quantity).strip().upper()
+    if normalized_quantity == "GENERALIZED_FORCE":
+        raise FemCoreError(
+            "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
+            "No verified ANSYS element formulation mapping is available for canonical N/V/M/T response",
+            details={"elementId": node_id, "component": component},
+        )
     if normalized_quantity not in {*_QUANTITY_TO_SOLUTION_TYPE, "REACTION_FORCE"}:
         raise FemCoreError(
             "RESULT_SERIES_UNAVAILABLE",
@@ -369,10 +375,42 @@ def query_ansys_structural_result(
     target_type = str(target.get("type") or "").strip().upper() if isinstance(target, dict) else ""
     target_id = target.get("id") if isinstance(target, dict) else None
     normalized_component = str(component).strip().upper()
-    if target_type != "NODE" or not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
+    if not isinstance(target_id, int) or isinstance(target_id, bool) or target_id <= 0:
         raise FemCoreError(
             "RESULT_SERIES_UNAVAILABLE",
-            "PR15 ANSYS structural stress queries currently require a positive NODE target",
+            "ANSYS structural response target id must be a positive integer",
+            details={"target": target},
+        )
+    if target_type == "ELEMENT":
+        if normalized_quantity in {"STRESS", "PRINCIPAL_STRESS"}:
+            raise FemCoreError(
+                "STRUCTURAL_RESPONSE_LOCATION_REQUIRED",
+                "ANSYS element stress is element-nodal and cannot be collapsed to one element value without an explicit native location selector",
+                details={
+                    "elementId": target_id,
+                    "quantity": normalized_quantity,
+                    "component": normalized_component,
+                },
+            )
+        if normalized_quantity == "GENERALIZED_FORCE":
+            raise FemCoreError(
+                "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
+                "No verified ANSYS element formulation mapping is available for canonical N/V/M/T response",
+                details={
+                    "elementId": target_id,
+                    "component": normalized_component,
+                    "location": location,
+                },
+            )
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "Requested ANSYS ELEMENT structural response is not supported by PR15 V1",
+            details={"quantity": normalized_quantity, "elementId": target_id},
+        )
+    if target_type != "NODE":
+        raise FemCoreError(
+            "RESULT_SERIES_UNAVAILABLE",
+            "ANSYS structural response target type must be NODE or ELEMENT",
             details={"target": target},
         )
     if location is not None:
