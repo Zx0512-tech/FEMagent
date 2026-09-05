@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+  runFemEvidenceProject,
   runFemHealth,
   runFemLoadInspect,
   runFemLoadStandardize,
@@ -170,6 +171,52 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       const report = await runFemResultQuery(
         ctx.cwd,
         params.runRef,
+        {
+          quantity: params.quantity,
+          target: params.target,
+          component: params.component,
+          operation: params.operation,
+          ...(params.offset === undefined ? {} : { offset: params.offset }),
+          ...(params.limit === undefined ? {} : { limit: params.limit }),
+        },
+        signal,
+      );
+      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_evidence_project",
+    label: "Project FEM Evidence",
+    description: "Project one recorded Result Intelligence query into artifact-backed Engineering Evidence. This is a SAFE read-only operation: it verifies recorded artifact integrity and never invokes a solver.",
+    promptSnippet: "Promote a deterministic recorded result into auditable Engineering Evidence only after target identity is known",
+    promptGuidelines: [
+      "Use fem_evidence_project only for a deterministic run and node target already established by project/model evidence; never guess engineering role-to-node mappings.",
+      "The tool verifies recorded result artifacts before promotion. If integrity verification fails, preserve the error rather than inventing or downgrading a claim.",
+      "Only VERIFIED evidence may be described as a verified engineering claim. LIMITED, INVALID and UNVERIFIED entries remain limitations.",
+      "Do not infer physical units when the returned metric unit is null, especially for solver-native ANSYS results.",
+      "This tool is read-only and must never trigger OpenSees or ANSYS execution.",
+    ],
+    parameters: Type.Object({
+      projectId: Type.String({ description: "Caller-defined project identifier used to group projected evidence" }),
+      runRef: Type.String({ description: "run_<id>, workspace-relative run directory, or run_manifest.json path" }),
+      evidenceId: Type.String({ description: "Stable caller-defined evidence identifier" }),
+      quantity: resultQuantity,
+      target: Type.Object({
+        type: Type.Literal("NODE"),
+        id: Type.Integer({ minimum: 1, description: "Deterministically resolved solver node ID" }),
+      }),
+      component: Type.String({ description: "Cartesian component alias such as X, UX, U1, or 1" }),
+      operation: resultOperation,
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "SERIES starting sample offset" })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 5000, description: "SERIES maximum returned samples" })),
+    }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemEvidenceProject(
+        ctx.cwd,
+        params.projectId,
+        params.runRef,
+        params.evidenceId,
         {
           quantity: params.quantity,
           target: params.target,

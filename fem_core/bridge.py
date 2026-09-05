@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.errors import FemCoreError
+from fem_core.evidence.api import project_run_evidence
 from fem_core.health import build_health_report
 from fem_core.load_inspection import inspect_load
 from fem_core.load_standardization import standardize_load
@@ -113,6 +114,14 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 workspace,
                 _required_text(payload, "runRef"),
                 _required_object(payload, "query"),
+            )
+        elif command == "evidence.project":
+            result = project_run_evidence(
+                workspace,
+                project_id=_required_text(payload, "projectId"),
+                run_ref=_required_text(payload, "runRef"),
+                evidence_id=_required_text(payload, "evidenceId"),
+                query=_required_object(payload, "query"),
             )
         elif command == "solver.status":
             result = get_solver_adapter(_required_text(payload, "solver")).status()

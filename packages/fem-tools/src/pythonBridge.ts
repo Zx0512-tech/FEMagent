@@ -10,6 +10,7 @@ import {
   type FemLoadInspection,
   type FemStandardizedLoad,
 } from "./bridgeProtocol.js";
+import type { FemEngineeringEvidenceReport } from "./evidenceTypes.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
 import type {
   FemResultManifest,
@@ -212,6 +213,22 @@ export async function runFemResultQuery(
   signal?: AbortSignal,
 ): Promise<FemResultQuery> {
   return await runFemCoreRequest<FemResultQuery>(cwd, "result.query", { runRef, query }, { signal });
+}
+
+export async function runFemEvidenceProject(
+  cwd: string,
+  projectId: string,
+  runRef: string,
+  evidenceId: string,
+  query: FemResultQueryRequest,
+  signal?: AbortSignal,
+): Promise<FemEngineeringEvidenceReport> {
+  return await runFemCoreRequest<FemEngineeringEvidenceReport>(
+    cwd,
+    "evidence.project",
+    { projectId, runRef, evidenceId, query },
+    { signal },
+  );
 }
 
 export async function runFemSolverStatus<S extends FemSolverKey>(
