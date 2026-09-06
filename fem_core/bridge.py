@@ -62,6 +62,15 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
     model_path = _required_text(payload, "modelPath")
     load_path = _optional_text(payload, "loadPath")
     solver_options = _optional_object(payload, "solverOptions")
+    normalized_solver = solver.strip().lower()
+    if normalized_solver in {"opensees", "openseespy"} and solver_options is not None:
+        unsupported = sorted(set(solver_options) - {"responsePlanPath"})
+        if unsupported:
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "OpenSees accepts only solverOptions.responsePlanPath in PR15",
+                details={"solver": solver, "unsupported": unsupported},
+            )
     return solver, model_path, load_path, solver_options
 
 
