@@ -40,7 +40,20 @@ def _validated_query(query: dict[str, Any]) -> dict[str, str]:
             "INVALID_CROSS_SOLVER_VALIDATION_REQUEST",
             "Cross-solver validation query must be an object",
         )
-    return {field: _required_text(query, field, scope="query").upper() for field in _REQUIRED_QUERY_FIELDS}
+    normalized = {
+        field: _required_text(query, field, scope="query").upper()
+        for field in _REQUIRED_QUERY_FIELDS
+    }
+    location = query.get("location")
+    if location is not None:
+        if not isinstance(location, str) or not location.strip():
+            raise FemCoreError(
+                "INVALID_CROSS_SOLVER_VALIDATION_REQUEST",
+                "Cross-solver validation query.location must be a non-empty string when provided",
+                details={"scope": "query", "field": "location"},
+            )
+        normalized["location"] = location.strip().upper()
+    return normalized
 
 
 def _unsupported_operation(project_id: str, query: dict[str, str]) -> dict[str, Any]:
@@ -91,6 +104,7 @@ def validate_cross_solver(
 
     normalized_left = _validated_side(left, scope="left")
     normalized_right = _validated_side(right, scope="right")
+    location = normalized_query.get("location")
 
     left_report = project_role_evidence(
         workspace,
@@ -102,6 +116,7 @@ def validate_cross_solver(
         evidence_id=f"{project_id.strip()}:cross-solver:left",
         quantity=normalized_query["quantity"],
         component=normalized_query["component"],
+        location=location,
         operation=normalized_query["operation"],
     )
     right_report = project_role_evidence(
@@ -114,6 +129,7 @@ def validate_cross_solver(
         evidence_id=f"{project_id.strip()}:cross-solver:right",
         quantity=normalized_query["quantity"],
         component=normalized_query["component"],
+        location=location,
         operation=normalized_query["operation"],
     )
 
