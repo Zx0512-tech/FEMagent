@@ -38,6 +38,24 @@ export {
   type FemResultQuerySummary,
 } from "./resultTypes.js";
 export {
+  type FemCartesianComponent,
+  type FemDamperResponseComponent,
+  type FemDamperResponseResultRequest,
+  type FemGeneralizedForceComponent,
+  type FemGeneralizedForceLocation,
+  type FemGeneralizedForceResultRequest,
+  type FemNodeCartesianQuantity,
+  type FemNodeCartesianResultRequest,
+  type FemPrincipalStressComponent,
+  type FemPrincipalStressResultRequest,
+  type FemResultTarget,
+  type FemStressComponent,
+  type FemStressResultRequest,
+  type FemStructuralOperation,
+  type FemStructuralQuantity,
+  type FemStructuralResultQueryRequest,
+} from "./structuralResponseTypes.js";
+export {
   type FemRoleEvidenceQueryRequest,
   type FemSemanticEntityValidation,
   type FemSemanticRoleEntity,
@@ -48,9 +66,11 @@ export {
   type FemSemanticRoleType,
 } from "./semanticTypes.js";
 export {
+  type FemAnsysModelUnits,
   type FemSolverDisplayName,
   type FemSolverExecutionMode,
   type FemSolverKey,
+  type FemSolverOptions,
   type FemSolverPreflight,
   type FemSolverRun,
   type FemSolverStatus,
