@@ -1,5 +1,12 @@
+import type {
+  FemGeneralizedForceLocation,
+  FemResultTarget,
+  FemStructuralOperation,
+  FemStructuralResultQueryRequest,
+} from "./structuralResponseTypes.js";
+
 export type FemResultIntegrityStatus = "VALID" | "LIMITED" | "INVALID";
-export type FemResultOperation = "SUMMARY" | "SERIES";
+export type FemResultOperation = FemStructuralOperation;
 
 export interface FemResultArtifact {
   role: string;
@@ -15,6 +22,8 @@ export interface FemResultCapability {
   target: Record<string, unknown>;
   unit: string | null;
   referenceFrame: string;
+  location?: FemGeneralizedForceLocation;
+  stressLocation?: string;
   sourceColumn?: string;
   sourceArtifact?: string;
 }
@@ -46,14 +55,7 @@ export interface FemResultManifest {
   warnings: Array<{ code: string; message: string; [key: string]: unknown }>;
 }
 
-export interface FemResultQueryRequest {
-  quantity: "DISPLACEMENT" | "VELOCITY" | "ACCELERATION" | "REACTION_FORCE" | string;
-  target: { type: "NODE"; id: number };
-  component: string;
-  operation: FemResultOperation;
-  offset?: number;
-  limit?: number;
-}
+export type FemResultQueryRequest = FemStructuralResultQueryRequest;
 
 export interface FemResultQuerySummary {
   sampleCount: number;
@@ -70,8 +72,10 @@ export interface FemResultQuery {
   caseFingerprint: string;
   solver: Record<string, unknown> & { name: string };
   quantity: string;
-  target: { type: "NODE"; id: number };
+  target: FemResultTarget;
   component: string;
+  location?: FemGeneralizedForceLocation;
+  stressLocation?: string;
   operation: FemResultOperation;
   unit: string | null;
   referenceFrame: string;

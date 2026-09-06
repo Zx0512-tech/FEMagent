@@ -11,6 +11,10 @@ from uuid import uuid4
 
 from fem_core.errors import FemCoreError
 from fem_core.opensees_python_inspection import inspect_opensees_python
+from fem_core.opensees_response_plan import (
+    load_opensees_response_plan,
+    validate_opensees_response_plan_domain,
+)
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.solvers.opensees import OpenSeesAdapter
 
@@ -22,8 +26,32 @@ def _sha256_file(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
+def _response_plan_option(
+    workspace: Path,
+    solver_options: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if solver_options is None:
+        return None
+    if not isinstance(solver_options, dict):
+        raise FemCoreError("UNSUPPORTED_SOLVER_OPTIONS", "OpenSees solverOptions must be a JSON object")
+    unknown = sorted(set(solver_options) - {"responsePlanPath"})
+    if unknown:
+        raise FemCoreError(
+            "UNSUPPORTED_SOLVER_OPTIONS",
+            "OpenSees PR15 accepts only responsePlanPath",
+            details={"unsupported": unknown},
+        )
+    response_plan_path = solver_options.get("responsePlanPath")
+    if not isinstance(response_plan_path, str) or not response_plan_path.strip():
+        raise FemCoreError(
+            "UNSUPPORTED_SOLVER_OPTIONS",
+            "OpenSees responsePlanPath must be a non-empty string",
+        )
+    return load_opensees_response_plan(workspace, response_plan_path)
+
+
 class OpenSeesBundleAdapter(OpenSeesAdapter):
-    """OpenSees adapter extended with safe bundle inspection for Python entrypoints."""
+    """OpenSees adapter extended with safe Python bundles and controlled response plans."""
 
     def status(self) -> dict[str, Any]:
         report = super().status()
@@ -32,6 +60,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 *report["capabilities"],
                 "PYTHON_MODEL_BUNDLE",
                 "BUILD_ONLY_INSPECTION",
+                "STRUCTURAL_RESPONSE_PLAN_V1",
             ]
         return report
 
@@ -137,6 +166,9 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "interceptedAnalyzeCalls": int(result.get("interceptedAnalyzeCalls") or 0),
             "nodeTags": [int(tag) for tag in result.get("nodeTags", [])],
             "elementTags": [int(tag) for tag in result.get("elementTags", [])],
+            "elementTypes": {
+                str(key): str(value) for key, value in dict(result.get("elementTypes") or {}).items()
+            },
             "nodeCoordinates": dict(result.get("nodeCoordinates") or {}),
             "analysisTime": float(result.get("analysisTime") or 0.0),
             "packageVersion": result.get("packageVersion"),
@@ -150,9 +182,16 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         *,
         model_path: str,
         load_path: str | None = None,
+        solver_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         model_file = resolve_workspace_file(workspace, model_path)
+        response_plan = _response_plan_option(workspace, solver_options)
         if model_file.suffix.lower() != ".py":
+            if response_plan is not None:
+                raise FemCoreError(
+                    "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
+                    "PR15 Structural Response Plans apply only to OpenSees Python model bundles",
+                )
             if not load_path:
                 raise FemCoreError(
                     "LOAD_REQUIRED",
@@ -167,6 +206,11 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         build: dict[str, Any] | None = None
         if status["available"] and model_safe and bundle_valid:
             build = self.build_inspect(workspace, model_path=model_path)
+            if response_plan is not None:
+                validate_opensees_response_plan_domain(
+                    response_plan,
+                    element_types=build["elementTypes"],
+                )
         domain_nonempty = bool(build and build["nodeTags"] and build["elementTags"])
         checks = [
             {"code": "SOLVER_AVAILABLE", "status": "PASSED" if status["available"] else "FAILED"},
@@ -174,6 +218,8 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             {"code": "MODEL_BUNDLE_INTEGRITY", "status": "PASSED" if bundle_valid else "FAILED"},
             {"code": "BUILD_INSPECTION_DOMAIN", "status": "PASSED" if domain_nonempty else "FAILED"},
         ]
+        if response_plan is not None:
+            checks.append({"code": "STRUCTURAL_RESPONSE_MAPPING", "status": "PASSED"})
         warnings: list[dict[str, Any]] = []
         load: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
         if load_path:
@@ -187,7 +233,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             warnings.append(
                 {
                     "code": "EXTERNAL_LOAD_NOT_INJECTED",
-                    "message": "PR6 executes OpenSees Python scripts with their own load/analysis definitions; the provided load is recorded but not injected",
+                    "message": "OpenSees Python scripts retain their own load/analysis definitions; the provided load is recorded but not injected",
                 }
             )
 
@@ -217,6 +263,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 },
             },
             "load": load,
+            "responsePlan": None if response_plan is None else dict(response_plan["plan"]),
             "executionEstimate": {"analysisSteps": None, "mode": "MODEL_SCRIPT"},
         }
 
@@ -226,9 +273,16 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         *,
         model_path: str,
         load_path: str | None = None,
+        solver_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         model_file = resolve_workspace_file(workspace, model_path)
+        response_plan = _response_plan_option(workspace, solver_options)
         if model_file.suffix.lower() != ".py":
+            if response_plan is not None:
+                raise FemCoreError(
+                    "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
+                    "PR15 Structural Response Plans apply only to OpenSees Python model bundles",
+                )
             if not load_path:
                 raise FemCoreError(
                     "LOAD_REQUIRED",
@@ -236,7 +290,12 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 )
             return super().run(workspace, model_path=model_path, load_path=load_path)
 
-        preflight = self.preflight(workspace, model_path=model_path, load_path=load_path)
+        preflight = self.preflight(
+            workspace,
+            model_path=model_path,
+            load_path=load_path,
+            solver_options=solver_options,
+        )
         if preflight["status"] != "READY":
             raise FemCoreError(
                 "SOLVER_PREFLIGHT_FAILED",
@@ -254,6 +313,22 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         staged_model = (stage_root / static["source"]["path"]).resolve()
+        staged_plan: Path | None = None
+        if response_plan is not None:
+            staged_plan = run_dir / "response_plan.normalized.json"
+            staged_plan.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": "1.0",
+                        "kind": "structural_response_plan",
+                        "channels": response_plan["channels"],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+
         worker_result = run_dir / "worker_result.json"
         solver_log = run_dir / "solver.log"
         command = [
@@ -269,6 +344,8 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "--result",
             str(worker_result),
         ]
+        if staged_plan is not None:
+            command.extend(["--response-plan", str(staged_plan)])
         try:
             completed = subprocess.run(
                 command,
@@ -289,7 +366,24 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "[stdout]\n" + completed.stdout + "\n[stderr]\n" + completed.stderr,
             encoding="utf-8",
         )
-        if completed.returncode != 0 or not worker_result.is_file():
+        worker: dict[str, Any] | None = None
+        if worker_result.is_file():
+            try:
+                loaded = json.loads(worker_result.read_text(encoding="utf-8"))
+                worker = loaded if isinstance(loaded, dict) else None
+            except (OSError, json.JSONDecodeError):
+                worker = None
+        if completed.returncode != 0:
+            if worker is not None and isinstance(worker.get("code"), str):
+                raise FemCoreError(
+                    str(worker["code"]),
+                    str(worker.get("message") or "OpenSees structural response worker failed"),
+                    details={
+                        "runId": run_id,
+                        "returnCode": completed.returncode,
+                        "logPath": workspace_relative_path(workspace, solver_log),
+                    },
+                )
             raise FemCoreError(
                 "OPENSEES_WORKER_FAILED",
                 "The isolated OpenSees Python model worker failed",
@@ -299,15 +393,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                     "logPath": workspace_relative_path(workspace, solver_log),
                 },
             )
-        try:
-            worker = json.loads(worker_result.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise FemCoreError(
-                "INVALID_SOLVER_RESULT",
-                "OpenSees Python model worker returned invalid JSON",
-                details={"runId": run_id},
-            ) from exc
-        if not isinstance(worker, dict) or worker.get("status") != "COMPLETED":
+        if worker is None or worker.get("status") != "COMPLETED":
             raise FemCoreError(
                 "INVALID_SOLVER_RESULT",
                 "OpenSees Python model worker did not complete successfully",
@@ -321,6 +407,14 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "OpenSees Python model worker did not produce result_summary.json",
                 details={"runId": run_id},
             )
+        structural_response = run_dir / "structural_response.json"
+        if response_plan is not None and not structural_response.is_file():
+            raise FemCoreError(
+                "INVALID_SOLVER_RESULT",
+                "OpenSees response-plan run did not produce structural_response.json",
+                details={"runId": run_id},
+            )
+
         load: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
         load_identity: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
         if load_path:
@@ -341,10 +435,23 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "bundleFingerprint": static["bundle"]["bundleFingerprint"],
                 "load": load_identity,
                 "analysis": "MODEL_SCRIPT",
+                "responsePlanSha256": response_plan["plan"]["sha256"] if response_plan is not None else None,
             },
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
+        outputs: dict[str, Any] = {
+            "runManifest": workspace_relative_path(workspace, run_dir / "run_manifest.json"),
+            "resultSummary": workspace_relative_path(workspace, result_summary),
+            "resultSummarySha256": _sha256_file(result_summary),
+            "solverLog": workspace_relative_path(workspace, solver_log),
+            "solverLogSha256": _sha256_file(solver_log),
+            "stagedBundleRoot": workspace_relative_path(workspace, stage_root),
+        }
+        if response_plan is not None:
+            outputs["structuralResponse"] = workspace_relative_path(workspace, structural_response)
+            outputs["structuralResponseSha256"] = _sha256_file(structural_response)
+
         manifest = {
             "schemaVersion": "1.0",
             "kind": "solver_run",
@@ -365,16 +472,10 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "files": static["bundle"]["files"],
             },
             "load": load,
+            "responsePlan": None if response_plan is None else dict(response_plan["plan"]),
             "analysis": worker.get("analysis"),
             "summary": worker.get("summary"),
-            "outputs": {
-                "runManifest": workspace_relative_path(workspace, run_dir / "run_manifest.json"),
-                "resultSummary": workspace_relative_path(workspace, result_summary),
-                "resultSummarySha256": _sha256_file(result_summary),
-                "solverLog": workspace_relative_path(workspace, solver_log),
-                "solverLogSha256": _sha256_file(solver_log),
-                "stagedBundleRoot": workspace_relative_path(workspace, stage_root),
-            },
+            "outputs": outputs,
         }
         manifest_path = run_dir / "run_manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")

@@ -14,7 +14,8 @@ def _write_manifest(
     workspace: Path,
     *,
     fingerprint: str,
-    node_id: int = 1,
+    entity_id: int = 1,
+    entity_type: str = "NODE",
     role_id: str = "TOWER_BASE_LEFT",
     role_type: str = "TOWER_BASE",
 ) -> Path:
@@ -29,7 +30,7 @@ def _write_manifest(
                     {
                         "roleId": role_id,
                         "roleType": role_type,
-                        "entity": {"type": "NODE", "id": node_id},
+                        "entity": {"type": entity_type, "id": entity_id},
                     }
                 ],
             }
@@ -52,11 +53,25 @@ def _write_ansys_model(workspace: Path) -> Path:
     return path
 
 
+def _write_static_opensees_model(workspace: Path) -> Path:
+    path = workspace / "model.py"
+    path.write_text(
+        "import openseespy.opensees as ops\n"
+        "ops.model('basic', '-ndm', 2, '-ndf', 2)\n"
+        "ops.node(1, 0.0, 0.0)\n"
+        "ops.node(2, 1.0, 0.0)\n"
+        "ops.uniaxialMaterial('Elastic', 1, 1000.0)\n"
+        "ops.element('truss', 41, 1, 2, 1.0, 1)\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_ansys_explicit_role_resolves_to_statically_confirmed_node(tmp_path: Path) -> None:
     _write_ansys_model(tmp_path)
     model_report = inspect_model(tmp_path, "model.inp")
     fingerprint = model_report["bundle"]["bundleFingerprint"]
-    _write_manifest(tmp_path, fingerprint=fingerprint, node_id=1)
+    _write_manifest(tmp_path, fingerprint=fingerprint, entity_id=1)
 
     result = resolve_semantic_role(
         tmp_path,
@@ -73,10 +88,59 @@ def test_ansys_explicit_role_resolves_to_statically_confirmed_node(tmp_path: Pat
     assert len(result["manifestSha256"]) == 64
 
 
+def test_static_opensees_explicit_element_role_is_confirmed(tmp_path: Path) -> None:
+    _write_static_opensees_model(tmp_path)
+    model_report = inspect_model(tmp_path, "model.py")
+    fingerprint = model_report["bundle"]["bundleFingerprint"]
+    _write_manifest(
+        tmp_path,
+        fingerprint=fingerprint,
+        entity_type="ELEMENT",
+        entity_id=41,
+        role_id="GIRDER_MIDSPAN",
+        role_type="MIDSPAN",
+    )
+
+    result = resolve_semantic_role(
+        tmp_path,
+        model_path="model.py",
+        manifest_path="semantic-roles.json",
+        role_id="GIRDER_MIDSPAN",
+    )
+
+    assert result["status"] == "RESOLVED"
+    assert result["roleType"] == "MIDSPAN"
+    assert result["entity"] == {"type": "ELEMENT", "id": 41}
+    assert result["entityValidation"] == "STATICALLY_CONFIRMED"
+
+
+def test_missing_explicit_element_fails_when_topology_is_complete(tmp_path: Path) -> None:
+    _write_static_opensees_model(tmp_path)
+    fingerprint = inspect_model(tmp_path, "model.py")["bundle"]["bundleFingerprint"]
+    _write_manifest(
+        tmp_path,
+        fingerprint=fingerprint,
+        entity_type="ELEMENT",
+        entity_id=999,
+        role_id="GIRDER_MIDSPAN",
+        role_type="MIDSPAN",
+    )
+
+    with pytest.raises(FemCoreError) as exc_info:
+        resolve_semantic_role(
+            tmp_path,
+            model_path="model.py",
+            manifest_path="semantic-roles.json",
+            role_id="GIRDER_MIDSPAN",
+        )
+
+    assert exc_info.value.code == "SEMANTIC_ROLE_ENTITY_NOT_FOUND"
+
+
 def test_semantic_inspection_returns_all_declared_roles(tmp_path: Path) -> None:
     _write_ansys_model(tmp_path)
     fingerprint = inspect_model(tmp_path, "model.inp")["bundle"]["bundleFingerprint"]
-    _write_manifest(tmp_path, fingerprint=fingerprint, node_id=2)
+    _write_manifest(tmp_path, fingerprint=fingerprint, entity_id=2)
 
     result = inspect_semantic_roles(
         tmp_path,
@@ -108,7 +172,7 @@ def test_stale_manifest_fails_closed(tmp_path: Path) -> None:
 def test_missing_explicit_node_fails_when_topology_is_complete(tmp_path: Path) -> None:
     _write_ansys_model(tmp_path)
     fingerprint = inspect_model(tmp_path, "model.inp")["bundle"]["bundleFingerprint"]
-    _write_manifest(tmp_path, fingerprint=fingerprint, node_id=999)
+    _write_manifest(tmp_path, fingerprint=fingerprint, entity_id=999)
 
     with pytest.raises(FemCoreError) as exc_info:
         resolve_semantic_role(
@@ -128,11 +192,12 @@ def test_dynamic_opensees_role_is_resolved_but_not_statically_enumerable(tmp_pat
         "ops.model('basic', '-ndm', 2, '-ndf', 2)\n"
         "for tag in range(1, 3):\n"
         "    ops.node(tag, float(tag - 1), 0.0)\n"
+        "ops.uniaxialMaterial('Elastic', 1, 1000.0)\n"
         "ops.element('truss', 1, 1, 2, 1.0, 1)\n",
         encoding="utf-8",
     )
     fingerprint = inspect_model(tmp_path, "model.py")["bundle"]["bundleFingerprint"]
-    _write_manifest(tmp_path, fingerprint=fingerprint, node_id=2)
+    _write_manifest(tmp_path, fingerprint=fingerprint, entity_id=2)
 
     result = resolve_semantic_role(
         tmp_path,
@@ -154,14 +219,49 @@ def test_dynamic_opensees_role_is_resolved_but_not_statically_enumerable(tmp_pat
     assert inspection["roles"][0]["entityValidation"] == "NOT_STATICALLY_ENUMERABLE"
 
 
+def test_dynamic_opensees_element_role_is_resolved_but_not_statically_enumerable(tmp_path: Path) -> None:
+    model = tmp_path / "model.py"
+    model.write_text(
+        "import openseespy.opensees as ops\n"
+        "ops.model('basic', '-ndm', 2, '-ndf', 2)\n"
+        "for tag in range(1, 3):\n"
+        "    ops.node(tag, float(tag - 1), 0.0)\n"
+        "ops.uniaxialMaterial('Elastic', 1, 1000.0)\n"
+        "for tag in range(41, 42):\n"
+        "    ops.element('truss', tag, 1, 2, 1.0, 1)\n",
+        encoding="utf-8",
+    )
+    fingerprint = inspect_model(tmp_path, "model.py")["bundle"]["bundleFingerprint"]
+    _write_manifest(
+        tmp_path,
+        fingerprint=fingerprint,
+        entity_type="ELEMENT",
+        entity_id=41,
+        role_id="GIRDER_MIDSPAN",
+        role_type="MIDSPAN",
+    )
+
+    result = resolve_semantic_role(
+        tmp_path,
+        model_path="model.py",
+        manifest_path="semantic-roles.json",
+        role_id="GIRDER_MIDSPAN",
+    )
+
+    assert result["status"] == "RESOLVED"
+    assert result["entity"] == {"type": "ELEMENT", "id": 41}
+    assert result["entityValidation"] == "NOT_STATICALLY_ENUMERABLE"
+
+
 @pytest.mark.parametrize(
     ("mutate", "expected_code"),
     [
         (lambda payload: payload.update({"schemaVersion": "2.0"}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
         (lambda payload: payload["roles"][0].update({"roleId": "tower-base"}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
         (lambda payload: payload["roles"][0].update({"roleType": "PIER_TOP"}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
-        (lambda payload: payload["roles"][0].update({"entity": {"type": "ELEMENT", "id": 1}}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
+        (lambda payload: payload["roles"][0].update({"entity": {"type": "FACE", "id": 1}}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
         (lambda payload: payload["roles"][0].update({"entity": {"type": "NODE", "id": 0}}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
+        (lambda payload: payload["roles"][0].update({"entity": {"type": "ELEMENT", "id": 0}}), "INVALID_SEMANTIC_ROLE_MANIFEST"),
     ],
 )
 def test_invalid_manifest_shapes_fail_closed(tmp_path: Path, mutate, expected_code: str) -> None:

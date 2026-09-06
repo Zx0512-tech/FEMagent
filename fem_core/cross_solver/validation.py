@@ -5,11 +5,13 @@ from typing import Any
 
 from .models import (
     COMPARABLE,
+    CROSS_SOLVER_LOCATION_MISMATCH,
     CROSS_SOLVER_METRIC_UNAVAILABLE,
     CROSS_SOLVER_QUERY_MISMATCH,
     CROSS_SOLVER_REFERENCE_FRAME_MISMATCH,
     CROSS_SOLVER_ROLE_MISMATCH,
     CROSS_SOLVER_SIDE_NOT_VERIFIED,
+    CROSS_SOLVER_STRESS_SEMANTICS_MISMATCH,
     CROSS_SOLVER_UNIT_MISMATCH,
     CROSS_SOLVER_UNIT_UNKNOWN,
     NOT_COMPARABLE,
@@ -50,6 +52,8 @@ def _side_projection(evidence: dict[str, Any] | None) -> dict[str, Any]:
             "entity": None,
             "unit": None,
             "referenceFrame": None,
+            "location": None,
+            "stressLocation": None,
             "absolutePeak": None,
         }
 
@@ -74,6 +78,10 @@ def _side_projection(evidence: dict[str, Any] | None) -> dict[str, Any]:
         "unit": metric.get("unit") if isinstance(metric.get("unit"), str) else None,
         "referenceFrame": (
             metric.get("referenceFrame") if isinstance(metric.get("referenceFrame"), str) else None
+        ),
+        "location": metric.get("location") if isinstance(metric.get("location"), str) else None,
+        "stressLocation": (
+            metric.get("stressLocation") if isinstance(metric.get("stressLocation"), str) else None
         ),
         "absolutePeak": summary.get("absolutePeak"),
     }
@@ -164,11 +172,7 @@ def compare_role_evidence_reports(
 
     left_metric = _metric(left_evidence)
     right_metric = _metric(right_evidence)
-    expected = (
-        query.get("quantity"),
-        query.get("component"),
-        query.get("operation"),
-    )
+    expected = (query.get("quantity"), query.get("component"), query.get("operation"))
     left_contract = (
         left_metric.get("quantity"),
         left_metric.get("component"),
@@ -189,6 +193,40 @@ def compare_role_evidence_reports(
             limitation=_limitation(
                 CROSS_SOLVER_QUERY_MISMATCH,
                 "Both evidence records must match the requested quantity, component, and operation",
+            ),
+        )
+
+    left_location = left_metric.get("location")
+    right_location = right_metric.get("location")
+    expected_location = query.get("location")
+    if (
+        left_location != right_location
+        or (expected_location is not None and left_location != expected_location)
+    ):
+        return _not_comparable(
+            project_id=project_id,
+            query=query,
+            left=left,
+            right=right,
+            role=role,
+            limitation=_limitation(
+                CROSS_SOLVER_LOCATION_MISMATCH,
+                "Both structural evidence records must refer to the same explicit response location",
+            ),
+        )
+
+    left_stress_location = left_metric.get("stressLocation")
+    right_stress_location = right_metric.get("stressLocation")
+    if left_stress_location != right_stress_location:
+        return _not_comparable(
+            project_id=project_id,
+            query=query,
+            left=left,
+            right=right,
+            role=role,
+            limitation=_limitation(
+                CROSS_SOLVER_STRESS_SEMANTICS_MISMATCH,
+                "Both structural evidence records require identical stress location/averaging semantics",
             ),
         )
 
@@ -215,7 +253,7 @@ def compare_role_evidence_reports(
             role=role,
             limitation=_limitation(
                 CROSS_SOLVER_UNIT_MISMATCH,
-                "PR14 V1 does not convert between different result units",
+                "PR15 V1 does not convert between different result units",
             ),
         )
 
@@ -236,7 +274,7 @@ def compare_role_evidence_reports(
             role=role,
             limitation=_limitation(
                 CROSS_SOLVER_REFERENCE_FRAME_MISMATCH,
-                "Both sides require the same explicit reference frame; PR14 V1 performs no frame transformation",
+                "Both sides require the same explicit reference frame; PR15 V1 performs no frame transformation",
             ),
         )
 

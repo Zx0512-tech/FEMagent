@@ -1,4 +1,8 @@
 import type { FemResultOperation } from "./resultTypes.js";
+import type {
+  FemGeneralizedForceLocation,
+  FemResultTarget,
+} from "./structuralResponseTypes.js";
 
 export type FemCrossSolverValidationStatus = "COMPARABLE" | "NOT_COMPARABLE";
 
@@ -12,6 +16,7 @@ export interface FemCrossSolverSideRequest {
 export interface FemCrossSolverQueryRequest {
   quantity: string;
   component: string;
+  location?: FemGeneralizedForceLocation;
   operation: FemResultOperation;
 }
 
@@ -24,7 +29,7 @@ export interface FemCrossSolverSideProjection {
   solver: string | null;
   runId: string | null;
   modelBundleFingerprint: string | null;
-  entity: { type: "NODE"; id: number } | null;
+  entity: FemResultTarget | null;
   unit: string | null;
   referenceFrame: string | null;
   absolutePeak: number | null;

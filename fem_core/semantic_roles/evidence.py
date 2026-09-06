@@ -22,16 +22,11 @@ def project_role_evidence(
     quantity: str,
     component: str,
     operation: str,
+    location: str | None = None,
     offset: int = 0,
     limit: int = 500,
 ) -> dict[str, Any]:
-    """Project a semantic NODE role through the existing verified Evidence path.
-
-    The semantic declaration is resolved against the current Model Bundle first.
-    The recorded solver run must then prove that it belongs to that same Model
-    Bundle before any Result Intelligence query is made through PR12's run-backed
-    evidence projection.
-    """
+    """Project an explicit semantic role through the verified Evidence path."""
 
     resolution = resolve_semantic_role(
         workspace,
@@ -60,10 +55,12 @@ def project_role_evidence(
     entity = resolution["entity"]
     query: dict[str, Any] = {
         "quantity": quantity,
-        "target": {"type": "NODE", "id": entity["id"]},
+        "target": dict(entity),
         "component": component,
         "operation": operation,
     }
+    if location is not None:
+        query["location"] = location
     if str(operation).upper() == "SERIES":
         query["offset"] = offset
         query["limit"] = limit

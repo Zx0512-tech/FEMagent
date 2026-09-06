@@ -1,4 +1,13 @@
-import type { FemResultOperation } from "./resultTypes.js";
+import type {
+  FemDamperResponseComponent,
+  FemGeneralizedForceComponent,
+  FemGeneralizedForceLocation,
+  FemNodeCartesianQuantity,
+  FemPrincipalStressComponent,
+  FemResultTarget,
+  FemStressComponent,
+  FemStructuralOperation,
+} from "./structuralResponseTypes.js";
 
 export type FemSemanticRoleType =
   | "TOWER_BASE"
@@ -11,10 +20,7 @@ export type FemSemanticRoleType =
 export type FemSemanticRoleStatus = "RESOLVED" | "UNRESOLVED" | "INVALID" | "STALE_MODEL";
 export type FemSemanticEntityValidation = "STATICALLY_CONFIRMED" | "NOT_STATICALLY_ENUMERABLE";
 
-export interface FemSemanticRoleEntity {
-  type: "NODE";
-  id: number;
-}
+export type FemSemanticRoleEntity = FemResultTarget;
 
 export interface FemSemanticRoleRecord {
   roleId: string;
@@ -47,10 +53,35 @@ export interface FemSemanticRoleInspection {
   warnings: Array<{ code: string; message: string }>;
 }
 
-export interface FemRoleEvidenceQueryRequest {
-  quantity: "DISPLACEMENT" | "VELOCITY" | "ACCELERATION" | "REACTION_FORCE" | string;
-  component: string;
-  operation: FemResultOperation;
+type FemRoleEvidencePaging = {
+  operation: FemStructuralOperation;
   offset?: number;
   limit?: number;
-}
+};
+
+export type FemRoleEvidenceQueryRequest =
+  | (FemRoleEvidencePaging & {
+      quantity: FemNodeCartesianQuantity;
+      component: string;
+      location?: never;
+    })
+  | (FemRoleEvidencePaging & {
+      quantity: "STRESS";
+      component: FemStressComponent;
+      location?: never;
+    })
+  | (FemRoleEvidencePaging & {
+      quantity: "PRINCIPAL_STRESS";
+      component: FemPrincipalStressComponent;
+      location?: never;
+    })
+  | (FemRoleEvidencePaging & {
+      quantity: "GENERALIZED_FORCE";
+      component: FemGeneralizedForceComponent;
+      location: FemGeneralizedForceLocation;
+    })
+  | (FemRoleEvidencePaging & {
+      quantity: "DAMPER_RESPONSE";
+      component: FemDamperResponseComponent;
+      location?: never;
+    });

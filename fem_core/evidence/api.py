@@ -16,15 +16,31 @@ _RESULT_ARTIFACT_ROLE = {
 }
 
 
-def _result_artifact(inspection: dict[str, Any]) -> tuple[str | None, str | None]:
+def _result_artifact(
+    inspection: dict[str, Any],
+    result: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    integrity = inspection.get("integrity")
+    artifacts = integrity.get("artifacts") if isinstance(integrity, dict) else None
+    if not isinstance(artifacts, list):
+        return None, None
+
+    source = result.get("source")
+    source_path = source.get("artifact") if isinstance(source, dict) else None
+    if isinstance(source_path, str) and source_path:
+        for artifact in artifacts:
+            if not isinstance(artifact, dict) or artifact.get("path") != source_path:
+                continue
+            if artifact.get("status") != "VERIFIED":
+                return source_path, None
+            digest = artifact.get("sha256")
+            return source_path, digest if isinstance(digest, str) else None
+
     solver = inspection.get("solver")
     solver_name = str(solver.get("name") if isinstance(solver, dict) else "").upper()
     preferred_role = _RESULT_ARTIFACT_ROLE.get(solver_name)
-    integrity = inspection.get("integrity")
-    artifacts = integrity.get("artifacts") if isinstance(integrity, dict) else None
-    if not isinstance(artifacts, list) or preferred_role is None:
+    if preferred_role is None:
         return None, None
-
     for artifact in artifacts:
         if not isinstance(artifact, dict) or artifact.get("role") != preferred_role:
             continue
@@ -55,7 +71,7 @@ def project_run_evidence(
 
     inspection = inspect_result(workspace, run_ref)
     result = query_result(workspace, run_ref, query)
-    artifact, artifact_sha256 = _result_artifact(inspection)
+    artifact, artifact_sha256 = _result_artifact(inspection, result)
 
     solver = inspection.get("solver")
     solver_name = str(solver.get("name") if isinstance(solver, dict) else "").upper()

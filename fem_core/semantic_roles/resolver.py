@@ -21,13 +21,15 @@ def _current_fingerprint(model: dict[str, Any]) -> str:
     return fingerprint.lower()
 
 
-def _static_node_tags(model: dict[str, Any]) -> set[int] | None:
+def _static_entity_tags(model: dict[str, Any], entity_type: str) -> set[int] | None:
     model_format = model.get("format")
+    tag_key = "nodeTags" if entity_type == "NODE" else "elementTags"
+
     if model_format == "OPENSEES_PYTHON":
         if model.get("dynamicGeneration") is True:
             return None
         topology = model.get("staticTopology")
-        tags = topology.get("nodeTags") if isinstance(topology, dict) else None
+        tags = topology.get(tag_key) if isinstance(topology, dict) else None
         if isinstance(tags, list) and all(isinstance(tag, int) and not isinstance(tag, bool) for tag in tags):
             return set(tags)
         return None
@@ -35,7 +37,7 @@ def _static_node_tags(model: dict[str, Any]) -> set[int] | None:
     if model_format == "ANSYS_APDL_TEXT":
         manifest = model.get("manifest")
         topology = manifest.get("topology") if isinstance(manifest, dict) else None
-        tags = topology.get("nodeTags") if isinstance(topology, dict) else None
+        tags = topology.get(tag_key) if isinstance(topology, dict) else None
         if isinstance(tags, list) and all(isinstance(tag, int) and not isinstance(tag, bool) for tag in tags):
             return set(tags)
         return None
@@ -46,7 +48,7 @@ def _static_node_tags(model: dict[str, Any]) -> set[int] | None:
 def _bind_manifest_to_model(
     model: dict[str, Any],
     semantic_manifest: dict[str, Any],
-) -> tuple[str, set[int] | None]:
+) -> str:
     current = _current_fingerprint(model)
     declared = semantic_manifest["model"]["bundleFingerprint"]
     if declared != current:
@@ -58,29 +60,36 @@ def _bind_manifest_to_model(
                 "modelBundleFingerprint": current,
             },
         )
-    return current, _static_node_tags(model)
+    return current
 
 
 def _role_result(
     role: dict[str, Any],
     *,
-    node_tags: set[int] | None,
+    model: dict[str, Any],
     model_fingerprint: str,
     manifest_sha256: str,
 ) -> dict[str, Any]:
-    node_id = role["entity"]["id"]
-    if node_tags is not None and node_id not in node_tags:
+    entity = role["entity"]
+    entity_type = entity["type"]
+    entity_id = entity["id"]
+    entity_tags = _static_entity_tags(model, entity_type)
+    if entity_tags is not None and entity_id not in entity_tags:
         raise FemCoreError(
             "SEMANTIC_ROLE_ENTITY_NOT_FOUND",
-            "Semantic role references a NODE that is absent from the statically enumerable model",
-            details={"roleId": role["roleId"], "nodeId": node_id},
+            "Semantic role references an entity that is absent from the statically enumerable model",
+            details={
+                "roleId": role["roleId"],
+                "entityType": entity_type,
+                "entityId": entity_id,
+            },
         )
 
-    entity_validation = STATICALLY_CONFIRMED if node_tags is not None else NOT_STATICALLY_ENUMERABLE
+    entity_validation = STATICALLY_CONFIRMED if entity_tags is not None else NOT_STATICALLY_ENUMERABLE
     return {
         "roleId": role["roleId"],
         "roleType": role["roleType"],
-        "entity": dict(role["entity"]),
+        "entity": dict(entity),
         "status": RESOLVED,
         "entityValidation": entity_validation,
         "modelBundleFingerprint": model_fingerprint,
@@ -96,13 +105,13 @@ def inspect_semantic_roles(
 ) -> dict[str, Any]:
     model = inspect_model(workspace, model_path)
     semantic_manifest = load_semantic_manifest(workspace, manifest_path)
-    model_fingerprint, node_tags = _bind_manifest_to_model(model, semantic_manifest)
+    model_fingerprint = _bind_manifest_to_model(model, semantic_manifest)
     manifest_meta = semantic_manifest["manifest"]
 
     roles = [
         _role_result(
             role,
-            node_tags=node_tags,
+            model=model,
             model_fingerprint=model_fingerprint,
             manifest_sha256=manifest_meta["sha256"],
         )
@@ -115,7 +124,7 @@ def inspect_semantic_roles(
         [
             {
                 "code": "SEMANTIC_ROLE_ENTITY_NOT_STATICALLY_ENUMERABLE",
-                "message": "Current Model Intelligence cannot fully enumerate NODE topology; explicit role declarations are retained without static entity confirmation",
+                "message": "Current Model Intelligence cannot fully enumerate the declared entity topology; explicit role declarations are retained without static entity confirmation",
             }
         ]
         if not_statically_enumerable
@@ -146,7 +155,7 @@ def resolve_semantic_role(
 ) -> dict[str, Any]:
     model = inspect_model(workspace, model_path)
     semantic_manifest = load_semantic_manifest(workspace, manifest_path)
-    model_fingerprint, node_tags = _bind_manifest_to_model(model, semantic_manifest)
+    model_fingerprint = _bind_manifest_to_model(model, semantic_manifest)
 
     role = next((item for item in semantic_manifest["roles"] if item["roleId"] == role_id), None)
     if role is None:
@@ -158,7 +167,7 @@ def resolve_semantic_role(
 
     result = _role_result(
         role,
-        node_tags=node_tags,
+        model=model,
         model_fingerprint=model_fingerprint,
         manifest_sha256=semantic_manifest["manifest"]["sha256"],
     )

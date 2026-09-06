@@ -63,12 +63,22 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
     load_path = _optional_text(payload, "loadPath")
     solver_options = _optional_object(payload, "solverOptions")
     normalized_solver = solver.strip().lower()
-    if normalized_solver in {"opensees", "openseespy"} and solver_options:
-        raise FemCoreError(
-            "UNSUPPORTED_SOLVER_OPTIONS",
-            "OpenSees does not accept ANSYS solverOptions in PR10",
-            details={"solver": solver, "solverOptions": solver_options},
-        )
+    if normalized_solver in {"opensees", "openseespy"} and solver_options is not None:
+        unsupported = sorted(set(solver_options) - {"responsePlanPath"})
+        if unsupported:
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "OpenSees accepts only solverOptions.responsePlanPath in PR15",
+                details={"solver": solver, "unsupported": unsupported},
+            )
+    if normalized_solver in {"ansys", "mapdl", "ansys-mapdl"} and solver_options is not None:
+        unsupported = sorted(set(solver_options) - {"modelUnits"})
+        if unsupported:
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "ANSYS accepts only solverOptions.modelUnits in PR15",
+                details={"solver": solver, "unsupported": unsupported},
+            )
     return solver, model_path, load_path, solver_options
 
 
@@ -151,6 +161,7 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 evidence_id=_required_text(payload, "evidenceId"),
                 quantity=_required_text(query, "quantity"),
                 component=_required_text(query, "component"),
+                location=query.get("location"),
                 operation=_required_text(query, "operation"),
                 offset=query.get("offset", 0),
                 limit=query.get("limit", 500),
