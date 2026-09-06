@@ -90,17 +90,31 @@ The API was corrected to preserve optional structural `location` for both sides.
 
 PR15 adds read-only Structural Response Pi tools and extends Semantic/Cross-Solver tools to NODE/ELEMENT structural identities. These read-only tools call Result Intelligence/Evidence only and do not execute a solver.
 
-OpenSees `solverOptions.responsePlanPath` is exposed as a path-only option. The existing fail-fast behavior remains: ANSYS `modelUnits` supplied to OpenSees are rejected as `UNSUPPORTED_SOLVER_OPTIONS` before model-path access. Arbitrary recorder strings/commands/args are not part of the schema.
+OpenSees `solverOptions.responsePlanPath` is exposed as a path-only option. Arbitrary recorder strings/commands/args are not part of the schema.
 
-## Pre-closeout full green gate
+The final closeout review found one asymmetric fail-fast boundary: the Bridge already rejected ANSYS `modelUnits` when sent to OpenSees, but an OpenSees-only `responsePlanPath` sent to ANSYS reached the adapter and attempted model access. CI #299 (run `34021930326`) proved the issue with one clean failing regression:
 
-CI #296, run `34021667112`, on implementation head `478045472bb19a0ff2d5ee26064c330fa05eaf22` completed all workflow steps successfully.
+```text
+TypeScript: 18 passed / 18
+Python:     171 passed, 1 failed
+Expected:   UNSUPPORTED_SOLVER_OPTIONS
+Observed:   FILE_NOT_FOUND
+```
 
-Observed counts:
+The root cause was solver-specific option validation being present only for the OpenSees branch of the Bridge. The final fix uses symmetric Bridge-level allowlists before adapter/model access:
+
+- OpenSees / OpenSeesPy: only `responsePlanPath`;
+- ANSYS / MAPDL / ANSYS-MAPDL: only `modelUnits`.
+
+CI #300, run `34023429680`, on head `5dddbb29a41fe7f9dc185b922de8756ba0b08b10` completed green after this correction.
+
+## Pre-documentation final candidate gate
+
+CI #300 produced the final implementation counts before this verification-record commit:
 
 ```text
 TypeScript engineering bridge tests: 18 passed / 18
-Python engineering core tests:     171 passed / 171
+Python engineering core tests:     172 passed / 172
 Python warnings:                    300
 Ruff:                               PASS
 OpenSees availability smoke:        PASS
@@ -133,14 +147,15 @@ Therefore PR15 verifies the ANSYS binary result reader and fail-closed semantics
 
 ## Architecture review checklist
 
-The PR diff was reviewed against the approved spec and implementation plan. At the pre-closeout head:
+The PR diff was reviewed against the approved spec and implementation plan. At closeout:
 
-- branch is based directly on `main` and was `behind_by=0`;
+- branch is based directly on `main` and was `behind_by=0` before the final documentation commit;
 - no optimization runtime is introduced;
 - no hidden unit inference/conversion is introduced;
 - no generic ANSYS element generalized-force mapping is invented;
 - no implicit element stress averaging/max collapse is introduced;
 - no arbitrary OpenSees recorder/command injection is exposed;
+- solver-specific options fail closed before adapter/model access when supplied to the wrong solver family;
 - Semantic Roles remain explicit manifest declarations;
 - structural artifacts are hashed before numerical promotion;
 - structural identity is retained through Evidence and Cross-Solver Validation;
@@ -149,4 +164,4 @@ The PR diff was reviewed against the approved spec and implementation plan. At t
 
 ## Final-head rule
 
-The documentation commit is intentionally followed by a fresh exact-head CI run. PR15 must not be marked Ready for review until that final documentation head completes the same full CI gate successfully and the branch remains current with `main` with no review blocker.
+This verification-record commit is the last repository-file write planned for PR15 closeout. A fresh CI run on its exact resulting head is therefore the authoritative final gate. The PR may be marked Ready for review only if that exact-head run completes all steps green, the branch remains `behind_by=0`, and no review/comment blocker appears. The exact final run/head is recorded in PR metadata rather than followed by another documentation commit, avoiding an infinite documentation-commit/CI cycle.
