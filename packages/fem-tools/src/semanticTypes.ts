@@ -1,5 +1,5 @@
 import type {
-  FemCartesianComponent,
+  FemCartesianComponentInput,
   FemDamperResponseComponent,
   FemGeneralizedForceComponent,
   FemGeneralizedForceLocation,
@@ -63,7 +63,7 @@ type FemRoleEvidencePaging = {
 export type FemRoleEvidenceQueryRequest =
   | (FemRoleEvidencePaging & {
       quantity: FemNodeCartesianQuantity;
-      component: FemCartesianComponent;
+      component: FemCartesianComponentInput;
       location?: never;
     })
   | (FemRoleEvidencePaging & {
