@@ -1,4 +1,8 @@
 import type { FemResultOperation, FemResultQuerySummary } from "./resultTypes.js";
+import type {
+  FemGeneralizedForceLocation,
+  FemResultTarget,
+} from "./structuralResponseTypes.js";
 
 export type FemEvidenceStatus = "VERIFIED" | "INVALID" | "LIMITED" | "UNVERIFIED";
 
@@ -10,8 +14,10 @@ export interface FemEvidenceArtifactRef {
 
 export interface FemEngineeringEvidenceMetric {
   quantity?: string;
-  target?: { type: "NODE"; id: number };
+  target?: FemResultTarget;
   component?: string;
+  location?: FemGeneralizedForceLocation;
+  stressLocation?: string;
   unit?: string | null;
   referenceFrame?: string;
   operation?: FemResultOperation;
