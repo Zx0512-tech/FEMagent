@@ -99,3 +99,22 @@ def test_opensees_solver_options_fail_closed_before_adapter_execution(tmp_path: 
 
     assert response["ok"] is False
     assert response["error"]["code"] == "UNSUPPORTED_SOLVER_OPTIONS"
+
+
+def test_ansys_rejects_opensees_response_plan_before_adapter_execution(tmp_path: Path) -> None:
+    response = handle_request(
+        {
+            "protocol": BRIDGE_PROTOCOL,
+            "requestId": "req-ansys-response-plan",
+            "command": "solver.preflight",
+            "payload": {
+                "solver": "ansys",
+                "modelPath": "does-not-need-to-exist.inp",
+                "solverOptions": {"responsePlanPath": "response-plan.json"},
+            },
+        },
+        workspace=tmp_path,
+    )
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "UNSUPPORTED_SOLVER_OPTIONS"
