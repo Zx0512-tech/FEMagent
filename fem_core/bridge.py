@@ -71,6 +71,14 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
                 "OpenSees accepts only solverOptions.responsePlanPath in PR15",
                 details={"solver": solver, "unsupported": unsupported},
             )
+    if normalized_solver in {"ansys", "mapdl", "ansys-mapdl"} and solver_options is not None:
+        unsupported = sorted(set(solver_options) - {"modelUnits"})
+        if unsupported:
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "ANSYS accepts only solverOptions.modelUnits in PR15",
+                details={"solver": solver, "unsupported": unsupported},
+            )
     return solver, model_path, load_path, solver_options
 
 
