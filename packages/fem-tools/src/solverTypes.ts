@@ -13,7 +13,7 @@ export interface FemAnsysModelUnits {
 
 export interface FemSolverOptions {
   modelUnits?: FemAnsysModelUnits;
-  [key: string]: unknown;
+  responsePlanPath?: string;
 }
 
 export interface FemSolverStatus<S extends FemSolverKey = FemSolverKey> {
@@ -41,6 +41,7 @@ export interface FemSolverPreflight<S extends FemSolverKey = FemSolverKey> {
   warnings: Array<Record<string, unknown>>;
   model: Record<string, unknown>;
   load: Record<string, unknown>;
+  responsePlan?: Record<string, unknown> | null;
   executionEstimate: {
     analysisSteps: number | null;
     mode?: string;
@@ -65,6 +66,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   };
   model: Record<string, unknown>;
   load: Record<string, unknown>;
+  responsePlan?: Record<string, unknown> | null;
   injection?: Record<string, unknown>;
   analysis: Record<string, unknown>;
   summary: Record<string, unknown>;
