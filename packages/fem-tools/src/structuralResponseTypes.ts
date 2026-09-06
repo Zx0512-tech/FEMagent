@@ -5,6 +5,17 @@ export type FemResultTarget =
   | { type: "ELEMENT"; id: number };
 
 export type FemCartesianComponent = "X" | "Y" | "Z";
+export type FemCartesianComponentInput =
+  | FemCartesianComponent
+  | "UX"
+  | "UY"
+  | "UZ"
+  | "U1"
+  | "U2"
+  | "U3"
+  | "1"
+  | "2"
+  | "3";
 export type FemNodeCartesianQuantity =
   | "DISPLACEMENT"
   | "VELOCITY"
@@ -36,7 +47,7 @@ interface FemPagedResultRequest {
 export interface FemNodeCartesianResultRequest extends FemPagedResultRequest {
   quantity: FemNodeCartesianQuantity;
   target: { type: "NODE"; id: number };
-  component: FemCartesianComponent;
+  component: FemCartesianComponentInput;
   location?: never;
 }
 
