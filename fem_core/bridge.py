@@ -62,13 +62,6 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
     model_path = _required_text(payload, "modelPath")
     load_path = _optional_text(payload, "loadPath")
     solver_options = _optional_object(payload, "solverOptions")
-    normalized_solver = solver.strip().lower()
-    if normalized_solver in {"opensees", "openseespy"} and solver_options:
-        raise FemCoreError(
-            "UNSUPPORTED_SOLVER_OPTIONS",
-            "OpenSees does not accept ANSYS solverOptions in PR10",
-            details={"solver": solver, "solverOptions": solver_options},
-        )
     return solver, model_path, load_path, solver_options
 
 
@@ -151,6 +144,7 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 evidence_id=_required_text(payload, "evidenceId"),
                 quantity=_required_text(query, "quantity"),
                 component=_required_text(query, "component"),
+                location=query.get("location"),
                 operation=_required_text(query, "operation"),
                 offset=query.get("offset", 0),
                 limit=query.get("limit", 500),
