@@ -47,7 +47,8 @@ interface FemPagedResultRequest {
 export interface FemNodeCartesianResultRequest extends FemPagedResultRequest {
   quantity: FemNodeCartesianQuantity;
   target: { type: "NODE"; id: number };
-  component: FemCartesianComponentInput;
+  /** Legacy nodal callers historically accepted string aliases; Python remains the validation authority. */
+  component: string;
   location?: never;
 }
 
