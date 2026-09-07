@@ -14,6 +14,7 @@ import type { FemEngineeringEvidenceReport } from "./evidenceTypes.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
 import type {
   FemEngineeringModelSpecInput,
+  FemModelSpecReadiness,
   FemModelSpecValidation,
 } from "./modelSpecTypes.js";
 import type {
@@ -201,6 +202,19 @@ export async function runFemModelSpecValidate(
   return await runFemCoreRequest<FemModelSpecValidation>(
     cwd,
     "modelSpec.validate",
+    { spec },
+    { signal },
+  );
+}
+
+export async function runFemModelSpecReadiness(
+  cwd: string,
+  spec: FemEngineeringModelSpecInput,
+  signal?: AbortSignal,
+): Promise<FemModelSpecReadiness> {
+  return await runFemCoreRequest<FemModelSpecReadiness>(
+    cwd,
+    "modelSpec.readiness",
     { spec },
     { signal },
   );
