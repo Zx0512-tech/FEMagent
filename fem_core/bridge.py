@@ -12,6 +12,7 @@ from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.model_spec import (
     evaluate_engineering_model_readiness,
+    render_opensees_frame_2d,
     validate_engineering_model_spec,
 )
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
@@ -116,6 +117,8 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = validate_engineering_model_spec(_required_object(payload, "spec"))
         elif command == "modelSpec.readiness":
             result = evaluate_engineering_model_readiness(_required_object(payload, "spec"))
+        elif command == "modelSpec.renderOpenSees":
+            result = render_opensees_frame_2d(workspace, _required_object(payload, "spec"))
         elif command == "load.inspect":
             result = inspect_load(workspace, _required_text(payload, "path"))
         elif command == "load.standardize":
