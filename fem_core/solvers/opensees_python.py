@@ -421,8 +421,33 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         staged_model = (stage_root / static["source"]["path"]).resolve()
+
         staged_plan: Path | None = None
-        if response_plan is not None:
+        staged_context: Path | None = None
+        if generated is not None:
+            generated = verify_generated_analysis_bundle(
+                workspace,
+                model_path=model_path,
+                response_plan_path=generated["artifacts"]["responsePlanPath"],
+                manifest_path=generated["artifacts"]["manifestPath"],
+            )
+            if _sha256_file(staged_model) != generated["artifacts"]["analysisSha256"]:
+                raise FemCoreError(
+                    "GENERATED_ANALYSIS_ARTIFACT_MISMATCH",
+                    "Staged OpenSees analysis differs from the verified generated analysis",
+                )
+            source_plan = resolve_workspace_file(
+                workspace,
+                generated["artifacts"]["responsePlanPath"],
+            )
+            staged_plan = run_dir / "response_plan.normalized.json"
+            shutil.copy2(source_plan, staged_plan)
+            staged_context = run_dir / "response_context.verified.json"
+            staged_context.write_text(
+                json.dumps(generated["responseContext"], indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        elif response_plan is not None:
             staged_plan = run_dir / "response_plan.normalized.json"
             staged_plan.write_text(
                 json.dumps(
@@ -452,7 +477,9 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "--result",
             str(worker_result),
         ]
-        if staged_plan is not None:
+        if staged_context is not None:
+            command.extend(["--response-context", str(staged_context)])
+        elif staged_plan is not None:
             command.extend(["--response-plan", str(staged_plan)])
         try:
             completed = subprocess.run(
@@ -516,10 +543,11 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 details={"runId": run_id},
             )
         structural_response = run_dir / "structural_response.json"
-        if response_plan is not None and not structural_response.is_file():
+        response_requested = response_plan is not None or generated is not None
+        if response_requested and not structural_response.is_file():
             raise FemCoreError(
                 "INVALID_SOLVER_RESULT",
-                "OpenSees response-plan run did not produce structural_response.json",
+                "OpenSees response run did not produce structural_response.json",
                 details={"runId": run_id},
             )
 
@@ -570,7 +598,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "solverLogSha256": _sha256_file(solver_log),
             "stagedBundleRoot": workspace_relative_path(workspace, stage_root),
         }
-        if response_plan is not None:
+        if response_requested:
             outputs["structuralResponse"] = workspace_relative_path(workspace, structural_response)
             outputs["structuralResponseSha256"] = _sha256_file(structural_response)
 
