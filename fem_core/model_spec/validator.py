@@ -5,7 +5,6 @@ import json
 import math
 from typing import Any
 
-
 VALIDATION_SCHEMA = "FEMAGENT_MODEL_SPEC_VALIDATION_V1"
 _ALLOWED_DOFS = ("UX", "UY", "RZ")
 _ALLOWED_LENGTH_UNITS = {"m", "cm", "mm"}
@@ -534,15 +533,18 @@ def validate_engineering_model_spec(spec: dict[str, Any]) -> dict[str, Any]:
                 )
         m_ux = _validate_number(mass.get("mUX"), f"{path}.mUX", issues)
         m_uy = _validate_number(mass.get("mUY"), f"{path}.mUY", issues)
-        if m_ux is not None and m_uy is not None:
-            if m_ux < 0 or m_uy < 0 or (m_ux == 0 and m_uy == 0):
-                _issue(
-                    issues,
-                    "ERROR",
-                    "MODEL_SPEC_INVALID_MASS",
-                    path,
-                    "Nodal translational masses must be nonnegative with at least one positive component",
-                )
+        if (
+            m_ux is not None
+            and m_uy is not None
+            and (m_ux < 0 or m_uy < 0 or (m_ux == 0 and m_uy == 0))
+        ):
+            _issue(
+                issues,
+                "ERROR",
+                "MODEL_SPEC_INVALID_MASS",
+                path,
+                "Nodal translational masses must be nonnegative with at least one positive component",
+            )
 
     for index, node in enumerate(nodes):
         if not isinstance(node, dict):
