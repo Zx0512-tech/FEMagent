@@ -135,6 +135,7 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
       "Cross-model existence, fingerprint binding, model readiness, and unit compatibility belong to the later Analysis Readiness gate, not this validator.",
       "Result requests are limited to the V1 whitelist: node displacement X/Y, node reaction force X/Y, node reaction moment Z, and element generalized force N/VY/MZ at END_I or END_J.",
       "This tool is read-only: it never writes OpenSees/APDL files, applies loads to a solver model, calls solver preflight/run, or repairs an analysis specification.",
+      "This fine-grained validation tool is temporary for PR25 integration. The long-term Agent tool surface should converge into a high-level Analysis capability instead of multiplying permanent internal validation tools.",
     ],
     parameters: Type.Object(
       { spec: analysisSpecSchema },
