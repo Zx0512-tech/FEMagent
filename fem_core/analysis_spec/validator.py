@@ -448,15 +448,17 @@ def validate_engineering_analysis_spec(spec: dict[str, Any]) -> dict[str, Any]:
         )
 
     units = spec.get("units")
-    if _validate_exact_keys(units, {"force"}, "units", issues):
-        if units.get("force") not in _ALLOWED_FORCE_UNITS:
-            _issue(
-                issues,
-                "ERROR",
-                "ANALYSIS_SPEC_UNSUPPORTED_UNIT",
-                "units.force",
-                f"Unsupported force unit: {units.get('force')!r}",
-            )
+    if (
+        _validate_exact_keys(units, {"force"}, "units", issues)
+        and units.get("force") not in _ALLOWED_FORCE_UNITS
+    ):
+        _issue(
+            issues,
+            "ERROR",
+            "ANALYSIS_SPEC_UNSUPPORTED_UNIT",
+            "units.force",
+            f"Unsupported force unit: {units.get('force')!r}",
+        )
 
     load_case_ids = _validate_load_cases(spec, issues)
     _validate_result_requests(spec, load_case_ids=load_case_ids, issues=issues)
