@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import type {
+  FemAnalysisReadiness,
   FemAnalysisSpecValidation,
   FemEngineeringAnalysisSpecInput,
+  FemOpenSeesAnalysisRenderResult,
 } from "./analysisSpecTypes.js";
 import {
   DEFAULT_BRIDGE_TIMEOUT_MS,
@@ -207,6 +209,34 @@ export async function runFemAnalysisSpecValidate(
     cwd,
     "analysisSpec.validate",
     { spec },
+    { signal },
+  );
+}
+
+export async function runFemAnalysisReadiness(
+  cwd: string,
+  modelSpec: FemEngineeringModelSpecInput,
+  analysisSpec: FemEngineeringAnalysisSpecInput,
+  signal?: AbortSignal,
+): Promise<FemAnalysisReadiness> {
+  return await runFemCoreRequest<FemAnalysisReadiness>(
+    cwd,
+    "analysis.readiness",
+    { modelSpec, analysisSpec },
+    { signal },
+  );
+}
+
+export async function runFemAnalysisRenderOpenSees(
+  cwd: string,
+  modelSpec: FemEngineeringModelSpecInput,
+  analysisSpec: FemEngineeringAnalysisSpecInput,
+  signal?: AbortSignal,
+): Promise<FemOpenSeesAnalysisRenderResult> {
+  return await runFemCoreRequest<FemOpenSeesAnalysisRenderResult>(
+    cwd,
+    "analysis.renderOpenSees",
+    { modelSpec, analysisSpec },
     { signal },
   );
 }
