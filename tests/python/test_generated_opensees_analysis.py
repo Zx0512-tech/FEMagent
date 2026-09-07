@@ -10,6 +10,7 @@ import pytest
 from fem_core.analysis_spec.opensees_renderer import render_opensees_linear_static_analysis
 from fem_core.errors import FemCoreError
 from fem_core.model_spec.validator import validate_engineering_model_spec
+from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.opensees_generated_analysis import verify_generated_analysis_bundle
 
 FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
@@ -69,7 +70,8 @@ def _analysis_spec(model: dict[str, Any]) -> dict[str, Any]:
 
 
 def _render(tmp_path: Path) -> dict[str, Any]:
-    report = render_opensees_linear_static_analysis(tmp_path, _model_spec(), _analysis_spec(_model_spec()))
+    model = _model_spec()
+    report = render_opensees_linear_static_analysis(tmp_path, model, _analysis_spec(model))
     assert report["status"] == "RENDERED"
     return report
 
@@ -85,6 +87,20 @@ def _verify(tmp_path: Path, report: dict[str, Any]) -> dict[str, Any]:
         response_plan_path=report["artifacts"]["responsePlanPath"],
         manifest_path=report["artifacts"]["manifestPath"],
     )
+
+
+def _generated_options(report: dict[str, Any]) -> dict[str, str]:
+    return {
+        "responsePlanPath": report["artifacts"]["responsePlanPath"],
+        "analysisManifestPath": report["artifacts"]["manifestPath"],
+    }
+
+
+def _opensees_adapter() -> Any:
+    adapter = get_solver_adapter("opensees")
+    if not adapter.status()["available"]:
+        pytest.skip("OpenSeesPy optional dependency is unavailable")
+    return adapter
 
 
 def test_fresh_generated_analysis_bundle_verifies_semantically(tmp_path: Path) -> None:
@@ -180,3 +196,51 @@ def test_regeneration_detects_self_consistent_source_tamper(tmp_path: Path) -> N
     with pytest.raises(FemCoreError) as raised:
         _verify(tmp_path, report)
     assert raised.value.code == "GENERATED_ANALYSIS_ARTIFACT_MISMATCH"
+
+
+def test_generated_analysis_preflight_accepts_mixed_verified_response_channels(tmp_path: Path) -> None:
+    report = _render(tmp_path)
+    adapter = _opensees_adapter()
+
+    preflight = adapter.preflight(
+        tmp_path,
+        model_path=report["artifacts"]["analysisPath"],
+        load_path=None,
+        solver_options=_generated_options(report),
+    )
+
+    assert preflight["status"] == "READY"
+    assert preflight["generatedAnalysis"]["status"] == "VERIFIED"
+    assert preflight["generatedAnalysis"]["analysisRenderFingerprint"] == report["analysisRenderFingerprint"]
+    assert preflight["generatedAnalysis"]["modelSpecFingerprint"] == report["input"]["modelSpecFingerprint"]
+    assert preflight["generatedAnalysis"]["analysisSpecFingerprint"] == report["input"]["analysisSpecFingerprint"]
+
+
+def test_generated_analysis_preflight_requires_plan_with_manifest(tmp_path: Path) -> None:
+    report = _render(tmp_path)
+    adapter = _opensees_adapter()
+
+    with pytest.raises(FemCoreError) as raised:
+        adapter.preflight(
+            tmp_path,
+            model_path=report["artifacts"]["analysisPath"],
+            load_path=None,
+            solver_options={"analysisManifestPath": report["artifacts"]["manifestPath"]},
+        )
+    assert raised.value.code == "UNSUPPORTED_SOLVER_OPTIONS"
+
+
+def test_generated_analysis_preflight_rejects_external_load_path(tmp_path: Path) -> None:
+    report = _render(tmp_path)
+    adapter = _opensees_adapter()
+    external_load = tmp_path / "external.csv"
+    external_load.write_text("time,value\n0,1\n", encoding="utf-8")
+
+    with pytest.raises(FemCoreError) as raised:
+        adapter.preflight(
+            tmp_path,
+            model_path=report["artifacts"]["analysisPath"],
+            load_path="external.csv",
+            solver_options=_generated_options(report),
+        )
+    assert raised.value.code == "UNSUPPORTED_SOLVER_OPTIONS"
