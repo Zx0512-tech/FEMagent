@@ -16,7 +16,6 @@ export {
   type FemAnalysisType,
   type FemEngineeringAnalysisSpecInput,
 } from "./analysisSpecTypes.js";
-export { runFemAnalysisSpecValidate } from "./analysisSpec.js";
 export {
   DEFAULT_BRIDGE_TIMEOUT_MS,
   DEFAULT_SOLVER_RUN_TIMEOUT_MS,
@@ -166,6 +165,7 @@ export {
 export {
   FemBridgeError,
   FemCoreError,
+  runFemAnalysisSpecValidate,
   runFemCoreRequest,
   runFemCrossSolverValidation,
   runFemEvidenceProject,
