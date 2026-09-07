@@ -103,6 +103,105 @@ def _opensees_adapter() -> Any:
     return adapter
 
 
+def _cantilever_model_spec() -> dict[str, Any]:
+    return {
+        "schemaVersion": "1.0",
+        "kind": "engineering_model_spec",
+        "dimension": "2D",
+        "family": "FRAME",
+        "coordinateSystem": "CARTESIAN_XY",
+        "units": {"length": "m", "force": "N", "time": "s"},
+        "nodes": [
+            {"id": 1, "x": 0.0, "y": 0.0},
+            {"id": 2, "x": 2.0, "y": 0.0},
+        ],
+        "materials": [
+            {"id": 1, "type": "LINEAR_ELASTIC", "youngsModulus": 210000000000.0}
+        ],
+        "sections": [
+            {"id": 1, "type": "FRAME_2D", "area": 0.01, "iz": 0.0001}
+        ],
+        "elements": [
+            {
+                "id": 1,
+                "type": "ELASTIC_FRAME_2D",
+                "formulation": "EULER_BERNOULLI",
+                "nodeI": 1,
+                "nodeJ": 2,
+                "materialId": 1,
+                "sectionId": 1,
+            }
+        ],
+        "constraints": [{"nodeId": 1, "dofs": ["UX", "UY", "RZ"]}],
+        "nodalMasses": [],
+    }
+
+
+def _cantilever_analysis_spec(model: dict[str, Any]) -> dict[str, Any]:
+    validation = validate_engineering_model_spec(model)
+    assert validation["status"] == "VALID"
+    return {
+        "schemaVersion": "1.0",
+        "kind": "engineering_analysis_spec",
+        "modelSpecFingerprint": validation["modelSpecFingerprint"],
+        "analysisType": "LINEAR_STATIC",
+        "units": {"force": "N"},
+        "loadCases": [
+            {
+                "loadCaseId": "LC1",
+                "nodalLoads": [{"nodeId": 2, "FX": 0.0, "FY": -1000.0, "MZ": 0.0}],
+            }
+        ],
+        "resultRequests": [
+            {
+                "requestId": "TIP_UY",
+                "loadCaseId": "LC1",
+                "quantity": "DISPLACEMENT",
+                "target": {"type": "NODE", "id": 2},
+                "component": "Y",
+            },
+            {
+                "requestId": "BASE_RY",
+                "loadCaseId": "LC1",
+                "quantity": "REACTION_FORCE",
+                "target": {"type": "NODE", "id": 1},
+                "component": "Y",
+            },
+            {
+                "requestId": "BASE_MZ",
+                "loadCaseId": "LC1",
+                "quantity": "REACTION_MOMENT",
+                "target": {"type": "NODE", "id": 1},
+                "component": "Z",
+            },
+            {
+                "requestId": "ELE_N_I",
+                "loadCaseId": "LC1",
+                "quantity": "GENERALIZED_FORCE",
+                "target": {"type": "ELEMENT", "id": 1},
+                "component": "N",
+                "location": "END_I",
+            },
+            {
+                "requestId": "ELE_VY_I",
+                "loadCaseId": "LC1",
+                "quantity": "GENERALIZED_FORCE",
+                "target": {"type": "ELEMENT", "id": 1},
+                "component": "VY",
+                "location": "END_I",
+            },
+            {
+                "requestId": "ELE_MZ_I",
+                "loadCaseId": "LC1",
+                "quantity": "GENERALIZED_FORCE",
+                "target": {"type": "ELEMENT", "id": 1},
+                "component": "MZ",
+                "location": "END_I",
+            },
+        ],
+    }
+
+
 def test_fresh_generated_analysis_bundle_verifies_semantically(tmp_path: Path) -> None:
     report = _render(tmp_path)
 
@@ -244,3 +343,34 @@ def test_generated_analysis_preflight_rejects_external_load_path(tmp_path: Path)
             solver_options=_generated_options(report),
         )
     assert raised.value.code == "UNSUPPORTED_SOLVER_OPTIONS"
+
+
+def test_generated_analysis_run_records_real_mixed_responses_with_trusted_units(tmp_path: Path) -> None:
+    adapter = _opensees_adapter()
+    model = _cantilever_model_spec()
+    analysis = _cantilever_analysis_spec(model)
+    rendered = render_opensees_linear_static_analysis(tmp_path, model, analysis)
+    assert rendered["status"] == "RENDERED"
+
+    run = adapter.run(
+        tmp_path,
+        model_path=rendered["artifacts"]["analysisPath"],
+        load_path=None,
+        solver_options=_generated_options(rendered),
+    )
+
+    structural_path = tmp_path / run["outputs"]["structuralResponse"]
+    structural = json.loads(structural_path.read_text(encoding="utf-8"))
+    channels = {channel["channelId"]: channel for channel in structural["channels"]}
+
+    assert channels["BASE_RY"]["values"][0] == pytest.approx(1000.0, rel=1e-9, abs=1e-7)
+    assert abs(channels["BASE_MZ"]["values"][0]) == pytest.approx(2000.0, rel=1e-9, abs=1e-7)
+    assert abs(channels["ELE_VY_I"]["values"][0]) == pytest.approx(1000.0, rel=1e-9, abs=1e-7)
+    assert abs(channels["ELE_MZ_I"]["values"][0]) == pytest.approx(2000.0, rel=1e-9, abs=1e-7)
+    assert channels["TIP_UY"]["values"][0] < 0.0
+    assert channels["TIP_UY"]["unit"] == "m"
+    assert channels["BASE_RY"]["unit"] == "N"
+    assert channels["BASE_MZ"]["unit"] == "N*m"
+    assert channels["ELE_N_I"]["unit"] == "N"
+    assert channels["ELE_VY_I"]["unit"] == "N"
+    assert channels["ELE_MZ_I"]["unit"] == "N*m"
