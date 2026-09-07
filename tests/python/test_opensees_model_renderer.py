@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-import fem_core.model_spec.opensees_renderer as renderer_module
 from fem_core.errors import FemCoreError
+from fem_core.model_spec import opensees_renderer as renderer_module
 from fem_core.model_spec.opensees_renderer import render_opensees_frame_2d
 
 
