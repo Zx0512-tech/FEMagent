@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   runFemModelSpecReadiness,
+  runFemModelSpecRenderOpenSees,
   runFemModelSpecValidate,
   type FemEngineeringModelSpecInput,
 } from "@femagent/fem-tools";
@@ -100,6 +101,13 @@ const modelSpecSchema = Type.Object(
   { additionalProperties: false },
 );
 
+function toolResult(report: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }],
+    details: report,
+  };
+}
+
 export default function modelSpecToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "fem_model_spec_validate",
@@ -117,22 +125,14 @@ export default function modelSpecToolsExtension(pi: ExtensionAPI) {
       "Do not infer Semantic Roles such as SUPPORT, COLUMN, GIRDER_END, or TOWER_BASE from coordinates, orientation, constraints, or names.",
       "This tool never writes OpenSees/APDL files and never executes OpenSees or ANSYS.",
     ],
-    parameters: Type.Object(
-      {
-        spec: modelSpecSchema,
-      },
-      { additionalProperties: false },
-    ),
+    parameters: Type.Object({ spec: modelSpecSchema }, { additionalProperties: false }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemModelSpecValidate(
         ctx.cwd,
         params.spec as FemEngineeringModelSpecInput,
         signal,
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(report, null, 2) }],
-        details: report,
-      };
+      return toolResult(report);
     },
   });
 
@@ -151,22 +151,40 @@ export default function modelSpecToolsExtension(pi: ExtensionAPI) {
       "Do not infer missing engineering facts, units, support types, or Semantic Roles from geometry, names, conventions, or retrieved knowledge.",
       "This tool never writes OpenSees/APDL files and never executes OpenSees or ANSYS.",
     ],
-    parameters: Type.Object(
-      {
-        spec: modelSpecSchema,
-      },
-      { additionalProperties: false },
-    ),
+    parameters: Type.Object({ spec: modelSpecSchema }, { additionalProperties: false }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemModelSpecReadiness(
         ctx.cwd,
         params.spec as FemEngineeringModelSpecInput,
         signal,
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(report, null, 2) }],
-        details: report,
-      };
+      return toolResult(report);
+    },
+  });
+
+  pi.registerTool({
+    name: "fem_model_render_opensees",
+    label: "Render OpenSees FEM Model",
+    description:
+      "Render a PR22-ready V1 2D elastic-frame ModelSpec into a deterministic construction-only OpenSeesPy artifact bundle under FEMagent's controlled generated-model directory. This writes internal artifacts but does not execute OpenSees or any analysis.",
+    promptSnippet:
+      "Create an auditable OpenSeesPy model artifact only from explicit validated and engineering-ready ModelSpec facts",
+    promptGuidelines: [
+      "Use this tool only after the engineering facts are explicit. The Python renderer always re-runs validation and readiness and will block a non-READY ModelSpec.",
+      "Do not invent or alter Young's modulus, A, Iz, supports, masses, units, topology, or other engineering facts to obtain a rendered artifact.",
+      "The tool exposes no caller-selected artifact path; successful files are created only below .femagent/generated-models in a fresh render directory.",
+      "RENDERED proves deterministic source generation only. It does not prove that the OpenSees solver domain was constructed successfully; inspect the generated model and run solver preflight/build-only before making that claim.",
+      "Do not infer Semantic Roles from generated node or element IDs, geometry, orientation, or constraint patterns.",
+      "This tool does not create loads, analysis settings, result requests, or execute fem_solver_run.",
+    ],
+    parameters: Type.Object({ spec: modelSpecSchema }, { additionalProperties: false }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemModelSpecRenderOpenSees(
+        ctx.cwd,
+        params.spec as FemEngineeringModelSpecInput,
+        signal,
+      );
+      return toolResult(report);
     },
   });
 }
