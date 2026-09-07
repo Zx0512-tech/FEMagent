@@ -16,6 +16,7 @@ from fem_core.model_spec import (
     validate_engineering_model_spec,
 )
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
+from fem_core.requirements import complete_engineering_requirement
 from fem_core.result_intelligence import inspect_result, query_result
 from fem_core.semantic_roles import inspect_semantic_roles, resolve_semantic_role
 from fem_core.semantic_roles.evidence import project_role_evidence
@@ -119,6 +120,8 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = evaluate_engineering_model_readiness(_required_object(payload, "spec"))
         elif command == "modelSpec.renderOpenSees":
             result = render_opensees_frame_2d(workspace, _required_object(payload, "spec"))
+        elif command == "requirement.complete":
+            result = complete_engineering_requirement(_required_object(payload, "draft"))
         elif command == "load.inspect":
             result = inspect_load(workspace, _required_text(payload, "path"))
         elif command == "load.standardize":
