@@ -73,6 +73,7 @@ def test_real_opensees_beam_records_hashed_structural_response_and_queries_it(tm
     assert run["status"] == "COMPLETED"
     assert run["responsePlan"]["path"] == "response-plan.json"
     assert len(run["responsePlan"]["sha256"]) == 64
+    assert run.get("generatedAnalysis") is None
     assert len(run["outputs"]["structuralResponseSha256"]) == 64
     structural_path = tmp_path / run["outputs"]["structuralResponse"]
     assert structural_path.is_file()
