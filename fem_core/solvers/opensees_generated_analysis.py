@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.analysis_spec.opensees_renderer import (
+    RENDER_SCHEMA,
     RENDERER_NAME,
     RENDERER_VERSION,
-    RENDER_SCHEMA,
     _canonical_json,
     _render_fingerprint,
     build_opensees_linear_static_analysis_source,
