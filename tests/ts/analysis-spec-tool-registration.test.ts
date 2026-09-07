@@ -12,6 +12,7 @@ test("AnalysisSpec validation is registered as a dedicated SAFE read-only Pi too
   assert.match(extension, /name:\s*["']fem_analysis_spec_validate["']/);
   assert.match(extension, /runFemAnalysisSpecValidate/);
   assert.match(extension, /SAFE|read-only/i);
+  assert.match(extension, /temporary|tool surface|high-level/i);
   assert.doesNotMatch(extension, /runFemSolverRun/);
   assert.doesNotMatch(extension, /runFemSolverPreflight/);
   assert.doesNotMatch(extension, /outputPath/);
