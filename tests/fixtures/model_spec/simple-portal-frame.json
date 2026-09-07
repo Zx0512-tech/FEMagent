@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "engineering_model_spec",
+  "dimension": "2D",
+  "family": "FRAME",
+  "coordinateSystem": "CARTESIAN_XY",
+  "units": {
+    "length": "m",
+    "force": "N",
+    "time": "s"
+  },
+  "nodes": [
+    {"id": 1, "x": 0.0, "y": 0.0},
+    {"id": 2, "x": 6.0, "y": 0.0},
+    {"id": 3, "x": 6.0, "y": 4.0},
+    {"id": 4, "x": 0.0, "y": 4.0}
+  ],
+  "materials": [
+    {"id": 1, "type": "LINEAR_ELASTIC", "youngsModulus": 206000000000.0}
+  ],
+  "sections": [
+    {"id": 1, "type": "FRAME_2D", "area": 0.02, "iz": 0.00008}
+  ],
+  "elements": [
+    {"id": 1, "type": "ELASTIC_FRAME_2D", "formulation": "EULER_BERNOULLI", "nodeI": 1, "nodeJ": 4, "materialId": 1, "sectionId": 1},
+    {"id": 2, "type": "ELASTIC_FRAME_2D", "formulation": "EULER_BERNOULLI", "nodeI": 4, "nodeJ": 3, "materialId": 1, "sectionId": 1},
+    {"id": 3, "type": "ELASTIC_FRAME_2D", "formulation": "EULER_BERNOULLI", "nodeI": 3, "nodeJ": 2, "materialId": 1, "sectionId": 1}
+  ],
+  "constraints": [
+    {"nodeId": 1, "dofs": ["UX", "UY", "RZ"]},
+    {"nodeId": 2, "dofs": ["UX", "UY", "RZ"]}
+  ],
+  "nodalMasses": []
+}
