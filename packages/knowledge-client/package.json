@@ -1,0 +1,15 @@
+{
+  "name": "@femagent/knowledge-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@femagent/fem-tools": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
