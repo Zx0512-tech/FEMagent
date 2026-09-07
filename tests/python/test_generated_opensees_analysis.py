@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
