@@ -7,6 +7,8 @@ export type FemModelSpecTimeUnit = "s" | "ms";
 export type FemModelSpecDof = "UX" | "UY" | "RZ";
 export type FemModelSpecStatus = "VALID" | "INVALID";
 export type FemModelSpecIssueSeverity = "ERROR" | "WARNING";
+export type FemModelSpecReadinessStatus = "READY" | "NOT_READY" | "INVALID_SPEC";
+export type FemModelSpecReadinessCheckStatus = "PASS" | "WARN" | "FAIL" | "SKIPPED";
 
 export interface FemModelSpecUnits {
   length: FemModelSpecLengthUnit;
@@ -82,4 +84,45 @@ export interface FemModelSpecValidation {
   issues: FemModelSpecIssue[];
   normalizedSpec: FemEngineeringModelSpecInput | null;
   modelSpecFingerprint: string | null;
+}
+
+export interface FemModelSpecReadinessComponent {
+  index: number;
+  nodeIds: number[];
+  elementIds: number[];
+}
+
+export interface FemModelSpecReadinessRigidBodyComponent extends FemModelSpecReadinessComponent {
+  constraintRank: number;
+  deficiency: number;
+}
+
+export interface FemModelSpecParallelConnectivityGroup {
+  nodeIds: [number, number];
+  elementIds: number[];
+}
+
+export interface FemModelSpecReadiness {
+  schema: "FEMAGENT_MODEL_SPEC_READINESS_V1";
+  status: FemModelSpecReadinessStatus;
+  profile: "FRAME_2D_ELASTIC_READINESS_V1";
+  modelSpecFingerprint: string | null;
+  validation: Pick<FemModelSpecValidation, "schema" | "status" | "issues">;
+  checks: {
+    connectivity: {
+      status: FemModelSpecReadinessCheckStatus;
+      componentCount: number;
+      components: FemModelSpecReadinessComponent[];
+    };
+    rigidBodyRestraint: {
+      status: FemModelSpecReadinessCheckStatus;
+      requiredRankPerComponent: 3;
+      components: FemModelSpecReadinessRigidBodyComponent[];
+    };
+    parallelConnectivity: {
+      status: FemModelSpecReadinessCheckStatus;
+      groups: FemModelSpecParallelConnectivityGroup[];
+    };
+  };
+  issues: FemModelSpecIssue[];
 }
