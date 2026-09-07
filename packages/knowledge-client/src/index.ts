@@ -10,7 +10,13 @@ export {
   FixtureKnowledgeProvider,
   createConfiguredKnowledgeProvider,
 } from "./fixtureProvider.js";
-export { knowledgeEvidenceFromSearchResult } from "./evidence.js";
+export {
+  composeUnifiedEvidenceBundle,
+  knowledgeEvidenceFromSearchResult,
+  type ComposeUnifiedEvidenceInput,
+  type UnifiedEvidenceBundle,
+  type UnifiedEvidenceLimitation,
+} from "./evidence.js";
 export {
   type KnowledgeChunk,
   type KnowledgeEvidence,

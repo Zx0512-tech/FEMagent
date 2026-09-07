@@ -16,6 +16,7 @@ const resourceLoader = new DefaultResourceLoader({
   additionalExtensionPaths: [
     resolve(cwd, ".pi/extensions/fem-tools.ts"),
     resolve(cwd, ".pi/extensions/permission-gate.ts"),
+    resolve(cwd, ".pi/extensions/knowledge-tools.ts"),
   ],
 });
 await resourceLoader.reload();
@@ -29,6 +30,7 @@ const { session } = await createAgentSession({
     "grep",
     "find",
     "ls",
+    "engiknow_search",
     "fem_health",
     "fem_model_inspect",
     "fem_load_inspect",
