@@ -14,6 +14,7 @@ export interface FemAnsysModelUnits {
 export interface FemSolverOptions {
   modelUnits?: FemAnsysModelUnits;
   responsePlanPath?: string;
+  analysisManifestPath?: string;
 }
 
 export interface FemSolverStatus<S extends FemSolverKey = FemSolverKey> {
