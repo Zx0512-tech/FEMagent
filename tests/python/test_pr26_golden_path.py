@@ -285,7 +285,7 @@ def test_pr26_render_identity_is_invariant_to_semantic_collection_order(tmp_path
         rendered_b["artifacts"]["readinessSha256"]
     )
     assert rendered_a["analysisRenderFingerprint"] == rendered_b["analysisRenderFingerprint"]
-    assert rendered_a["renderId"] != rendered_b["renderId"]
+    assert rendered_a["analysisRenderId"] != rendered_b["analysisRenderId"]
 
 
 def _tamper_analysis_source(tmp_path: Path, rendered: dict[str, Any]) -> None:
