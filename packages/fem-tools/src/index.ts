@@ -53,7 +53,15 @@ export {
   type FemModelSpecTimeUnit,
   type FemModelSpecUnits,
   type FemModelSpecValidation,
+  type FemOpenSeesBlockedRenderResult,
+  type FemOpenSeesRenderedResult,
+  type FemOpenSeesRenderArtifacts,
+  type FemOpenSeesRenderInput,
+  type FemOpenSeesRenderMapping,
+  type FemOpenSeesRenderRenderer,
+  type FemOpenSeesRenderResult,
 } from "./modelSpecTypes.js";
+export { runFemModelSpecRenderOpenSees } from "./modelSpecRender.js";
 export {
   type FemResultArtifact,
   type FemResultCapability,
