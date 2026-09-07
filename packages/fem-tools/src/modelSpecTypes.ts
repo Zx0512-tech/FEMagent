@@ -126,3 +126,51 @@ export interface FemModelSpecReadiness {
   };
   issues: FemModelSpecIssue[];
 }
+
+export interface FemOpenSeesRenderRenderer {
+  name: "OPENSEES_FRAME_2D_V1";
+  version: "1.0";
+}
+
+export interface FemOpenSeesRenderInput {
+  modelSpecFingerprint: string;
+  readinessProfile: "FRAME_2D_ELASTIC_READINESS_V1";
+  units: FemModelSpecUnits;
+}
+
+export interface FemOpenSeesRenderMapping {
+  nodeTagPolicy: "IDENTITY";
+  elementTagPolicy: "IDENTITY";
+  geomTransfTag: 1;
+  nodeCount: number;
+  elementCount: number;
+}
+
+export interface FemOpenSeesRenderArtifacts {
+  modelPath: string;
+  modelSha256: string;
+  manifestPath: string;
+}
+
+export interface FemOpenSeesRenderedResult {
+  schema: "FEMAGENT_OPENSEES_RENDER_V1";
+  status: "RENDERED";
+  renderId: string;
+  renderer: FemOpenSeesRenderRenderer;
+  input: FemOpenSeesRenderInput;
+  mapping: FemOpenSeesRenderMapping;
+  artifacts: FemOpenSeesRenderArtifacts;
+  renderFingerprint: string;
+}
+
+export interface FemOpenSeesBlockedRenderResult {
+  schema: "FEMAGENT_OPENSEES_RENDER_V1";
+  status: "BLOCKED";
+  reason: "MODEL_NOT_READY";
+  readiness: FemModelSpecReadiness;
+  renderId: null;
+  artifacts: null;
+  renderFingerprint: null;
+}
+
+export type FemOpenSeesRenderResult = FemOpenSeesRenderedResult | FemOpenSeesBlockedRenderResult;
