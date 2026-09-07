@@ -8,6 +8,10 @@ from typing import Any
 from uuid import uuid4
 
 from fem_core.errors import FemCoreError
+from fem_core.model_spec.opensees_source import (
+    GEOM_TRANSF_TAG,
+    build_opensees_frame_2d_model_source,
+)
 from fem_core.model_spec.readiness import evaluate_engineering_model_readiness
 from fem_core.model_spec.validator import validate_engineering_model_spec
 from fem_core.pathing import workspace_relative_path
@@ -16,7 +20,6 @@ RENDER_SCHEMA = "FEMAGENT_OPENSEES_RENDER_V1"
 RENDERER_NAME = "OPENSEES_FRAME_2D_V1"
 RENDERER_VERSION = "1.0"
 SUPPORTED_READINESS_PROFILE = "FRAME_2D_ELASTIC_READINESS_V1"
-_GEOM_TRANSF_TAG = 1
 
 
 def _new_render_id() -> str:
@@ -25,13 +28,6 @@ def _new_render_id() -> str:
 
 def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
-
-
-def _format_float(value: Any) -> str:
-    number = float(value)
-    if number == 0.0:
-        return "0.0"
-    return repr(number)
 
 
 def _blocked_result(readiness: dict[str, Any]) -> dict[str, Any]:
@@ -44,86 +40,6 @@ def _blocked_result(readiness: dict[str, Any]) -> dict[str, Any]:
         "artifacts": None,
         "renderFingerprint": None,
     }
-
-
-def _lookup_by_id(
-    items: list[dict[str, Any]],
-    identifier: int,
-    *,
-    namespace: str,
-) -> dict[str, Any]:
-    for item in items:
-        if item["id"] == identifier:
-            return item
-    raise FemCoreError(
-        "OPENSEES_RENDER_INTERNAL_INVARIANT",
-        f"Validated ModelSpec lost referenced {namespace} {identifier}",
-        details={"namespace": namespace, "id": identifier},
-    )
-
-
-def _constraint_flags(dofs: list[str]) -> tuple[int, int, int]:
-    selected = set(dofs)
-    return (
-        1 if "UX" in selected else 0,
-        1 if "UY" in selected else 0,
-        1 if "RZ" in selected else 0,
-    )
-
-
-def _render_source(spec: dict[str, Any]) -> str:
-    lines = [
-        "import openseespy.opensees as ops",
-        "",
-        "ops.wipe()",
-        'ops.model("basic", "-ndm", 2, "-ndf", 3)',
-        "",
-    ]
-
-    for node in sorted(spec["nodes"], key=lambda item: item["id"]):
-        lines.append(
-            f"ops.node({node['id']}, {_format_float(node['x'])}, {_format_float(node['y'])})"
-        )
-
-    if spec["constraints"]:
-        lines.append("")
-        for constraint in sorted(spec["constraints"], key=lambda item: item["nodeId"]):
-            ux, uy, rz = _constraint_flags(constraint["dofs"])
-            lines.append(f"ops.fix({constraint['nodeId']}, {ux}, {uy}, {rz})")
-
-    if spec["nodalMasses"]:
-        lines.append("")
-        for mass in sorted(spec["nodalMasses"], key=lambda item: item["nodeId"]):
-            lines.append(
-                "ops.mass("
-                f"{mass['nodeId']}, {_format_float(mass['mUX'])}, "
-                f"{_format_float(mass['mUY'])}, 0.0)"
-            )
-
-    lines.extend(["", f'ops.geomTransf("Linear", {_GEOM_TRANSF_TAG})', ""])
-
-    materials = list(spec["materials"])
-    sections = list(spec["sections"])
-    for element in sorted(spec["elements"], key=lambda item: item["id"]):
-        material = _lookup_by_id(
-            materials,
-            element["materialId"],
-            namespace="material",
-        )
-        section = _lookup_by_id(
-            sections,
-            element["sectionId"],
-            namespace="section",
-        )
-        lines.append(
-            'ops.element("elasticBeamColumn", '
-            f"{element['id']}, {element['nodeI']}, {element['nodeJ']}, "
-            f"{_format_float(section['area'])}, "
-            f"{_format_float(material['youngsModulus'])}, "
-            f"{_format_float(section['iz'])}, {_GEOM_TRANSF_TAG})"
-        )
-
-    return "\n".join(lines) + "\n"
 
 
 def _render_fingerprint(model_spec_fingerprint: str, model_sha256: str) -> str:
@@ -188,7 +104,7 @@ def render_opensees_frame_2d(workspace: Path, spec: dict[str, Any]) -> dict[str,
             "Readiness and ModelSpec validation disagree at the renderer boundary",
         )
 
-    source = _render_source(normalized)
+    source = build_opensees_frame_2d_model_source(normalized)
     source_bytes = source.encode("utf-8")
     model_sha256 = sha256(source_bytes).hexdigest()
     render_fingerprint = _render_fingerprint(model_spec_fingerprint, model_sha256)
@@ -227,7 +143,7 @@ def render_opensees_frame_2d(workspace: Path, spec: dict[str, Any]) -> dict[str,
         "mapping": {
             "nodeTagPolicy": "IDENTITY",
             "elementTagPolicy": "IDENTITY",
-            "geomTransfTag": _GEOM_TRANSF_TAG,
+            "geomTransfTag": GEOM_TRANSF_TAG,
             "nodeCount": len(normalized["nodes"]),
             "elementCount": len(normalized["elements"]),
         },

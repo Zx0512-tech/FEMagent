@@ -17,6 +17,7 @@ from fem_core.opensees_response_plan import (
 )
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.solvers.opensees import OpenSeesAdapter
+from fem_core.solvers.opensees_generated_analysis import verify_generated_analysis_bundle
 
 _BUILD_TIMEOUT_S = 60.0
 _SCRIPT_RUN_TIMEOUT_S = 60.0
@@ -26,28 +27,91 @@ def _sha256_file(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
-def _response_plan_option(
+def _solver_options(
     workspace: Path,
+    *,
+    model_path: str,
+    load_path: str | None,
     solver_options: dict[str, Any] | None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     if solver_options is None:
-        return None
+        return None, None
     if not isinstance(solver_options, dict):
         raise FemCoreError("UNSUPPORTED_SOLVER_OPTIONS", "OpenSees solverOptions must be a JSON object")
-    unknown = sorted(set(solver_options) - {"responsePlanPath"})
+    unknown = sorted(set(solver_options) - {"responsePlanPath", "analysisManifestPath"})
     if unknown:
         raise FemCoreError(
             "UNSUPPORTED_SOLVER_OPTIONS",
-            "OpenSees PR15 accepts only responsePlanPath",
+            "OpenSees PR26 accepts only responsePlanPath and analysisManifestPath",
             details={"unsupported": unknown},
         )
+
     response_plan_path = solver_options.get("responsePlanPath")
+    manifest_path = solver_options.get("analysisManifestPath")
+    if manifest_path is not None:
+        if not isinstance(manifest_path, str) or not manifest_path.strip():
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "OpenSees analysisManifestPath must be a non-empty string when provided",
+            )
+        if not isinstance(response_plan_path, str) or not response_plan_path.strip():
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "Generated OpenSees analyses require responsePlanPath from the same PR26 render",
+            )
+        if load_path is not None:
+            raise FemCoreError(
+                "UNSUPPORTED_SOLVER_OPTIONS",
+                "Generated OpenSees analyses embed their approved loads; loadPath must be omitted",
+            )
+        generated = verify_generated_analysis_bundle(
+            workspace,
+            model_path=model_path,
+            response_plan_path=response_plan_path,
+            manifest_path=manifest_path,
+        )
+        return None, generated
+
     if not isinstance(response_plan_path, str) or not response_plan_path.strip():
         raise FemCoreError(
             "UNSUPPORTED_SOLVER_OPTIONS",
             "OpenSees responsePlanPath must be a non-empty string",
         )
-    return load_opensees_response_plan(workspace, response_plan_path)
+    return load_opensees_response_plan(workspace, response_plan_path), None
+
+
+def _generated_summary(generated: dict[str, Any] | None) -> dict[str, Any] | None:
+    if generated is None:
+        return None
+    return {
+        "status": generated["status"],
+        "analysisRenderFingerprint": generated["analysisRenderFingerprint"],
+        "modelSpecFingerprint": generated["modelSpecFingerprint"],
+        "analysisSpecFingerprint": generated["analysisSpecFingerprint"],
+        "analysisManifestSha256": generated["analysisManifestSha256"],
+    }
+
+
+def _validate_generated_build_domain(
+    generated: dict[str, Any],
+    build: dict[str, Any],
+) -> None:
+    normalized_model = generated["normalizedModelSpec"]
+    expected_nodes = sorted(int(node["id"]) for node in normalized_model["nodes"])
+    expected_elements = sorted(int(element["id"]) for element in normalized_model["elements"])
+    actual_nodes = sorted(int(tag) for tag in build["nodeTags"])
+    actual_elements = sorted(int(tag) for tag in build["elementTags"])
+    if actual_nodes != expected_nodes or actual_elements != expected_elements:
+        raise FemCoreError(
+            "GENERATED_ANALYSIS_MODEL_DOMAIN_MISMATCH",
+            "Built OpenSees model domain differs from the verified embedded ModelSpec",
+            details={
+                "expectedNodeTags": expected_nodes,
+                "actualNodeTags": actual_nodes,
+                "expectedElementTags": expected_elements,
+                "actualElementTags": actual_elements,
+            },
+        )
 
 
 class OpenSeesBundleAdapter(OpenSeesAdapter):
@@ -61,6 +125,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "PYTHON_MODEL_BUNDLE",
                 "BUILD_ONLY_INSPECTION",
                 "STRUCTURAL_RESPONSE_PLAN_V1",
+                "GENERATED_ANALYSIS_VERIFICATION_V1",
             ]
         return report
 
@@ -185,8 +250,18 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         solver_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         model_file = resolve_workspace_file(workspace, model_path)
-        response_plan = _response_plan_option(workspace, solver_options)
+        response_plan, generated = _solver_options(
+            workspace,
+            model_path=model_path,
+            load_path=load_path,
+            solver_options=solver_options,
+        )
         if model_file.suffix.lower() != ".py":
+            if generated is not None:
+                raise FemCoreError(
+                    "UNSUPPORTED_SOLVER_OPTIONS",
+                    "Generated-analysis manifests apply only to OpenSees Python entrypoints",
+                )
             if response_plan is not None:
                 raise FemCoreError(
                     "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
@@ -206,7 +281,9 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         build: dict[str, Any] | None = None
         if status["available"] and model_safe and bundle_valid:
             build = self.build_inspect(workspace, model_path=model_path)
-            if response_plan is not None:
+            if generated is not None:
+                _validate_generated_build_domain(generated, build)
+            elif response_plan is not None:
                 validate_opensees_response_plan_domain(
                     response_plan,
                     element_types=build["elementTypes"],
@@ -218,10 +295,21 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             {"code": "MODEL_BUNDLE_INTEGRITY", "status": "PASSED" if bundle_valid else "FAILED"},
             {"code": "BUILD_INSPECTION_DOMAIN", "status": "PASSED" if domain_nonempty else "FAILED"},
         ]
-        if response_plan is not None:
+        if generated is not None:
+            checks.extend(
+                [
+                    {"code": "GENERATED_ANALYSIS_VERIFIED", "status": "PASSED"},
+                    {"code": "GENERATED_ANALYSIS_MODEL_DOMAIN", "status": "PASSED"},
+                ]
+            )
+        elif response_plan is not None:
             checks.append({"code": "STRUCTURAL_RESPONSE_MAPPING", "status": "PASSED"})
         warnings: list[dict[str, Any]] = []
-        load: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
+        load: dict[str, Any] = (
+            {"mode": "GENERATED_ANALYSIS_EMBEDDED"}
+            if generated is not None
+            else {"mode": "MODEL_SCRIPT_MANAGED"}
+        )
         if load_path:
             load_file = resolve_workspace_file(workspace, load_path)
             load = {
@@ -238,6 +326,15 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             )
 
         ready = all(check["status"] == "PASSED" for check in checks)
+        response_plan_report: dict[str, Any] | None
+        if generated is not None:
+            response_plan_report = {
+                "mode": "GENERATED_ANALYSIS_VERIFIED",
+                "path": generated["artifacts"]["responsePlanPath"],
+                "sha256": generated["artifacts"]["responsePlanSha256"],
+            }
+        else:
+            response_plan_report = None if response_plan is None else dict(response_plan["plan"])
         return {
             "schemaVersion": "1.0",
             "kind": "solver_preflight",
@@ -263,7 +360,8 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 },
             },
             "load": load,
-            "responsePlan": None if response_plan is None else dict(response_plan["plan"]),
+            "responsePlan": response_plan_report,
+            "generatedAnalysis": _generated_summary(generated),
             "executionEstimate": {"analysisSteps": None, "mode": "MODEL_SCRIPT"},
         }
 
@@ -276,8 +374,18 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
         solver_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         model_file = resolve_workspace_file(workspace, model_path)
-        response_plan = _response_plan_option(workspace, solver_options)
+        response_plan, generated = _solver_options(
+            workspace,
+            model_path=model_path,
+            load_path=load_path,
+            solver_options=solver_options,
+        )
         if model_file.suffix.lower() != ".py":
+            if generated is not None:
+                raise FemCoreError(
+                    "UNSUPPORTED_SOLVER_OPTIONS",
+                    "Generated-analysis manifests apply only to OpenSees Python entrypoints",
+                )
             if response_plan is not None:
                 raise FemCoreError(
                     "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
@@ -313,8 +421,33 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         staged_model = (stage_root / static["source"]["path"]).resolve()
+
         staged_plan: Path | None = None
-        if response_plan is not None:
+        staged_context: Path | None = None
+        if generated is not None:
+            generated = verify_generated_analysis_bundle(
+                workspace,
+                model_path=model_path,
+                response_plan_path=generated["artifacts"]["responsePlanPath"],
+                manifest_path=generated["artifacts"]["manifestPath"],
+            )
+            if _sha256_file(staged_model) != generated["artifacts"]["analysisSha256"]:
+                raise FemCoreError(
+                    "GENERATED_ANALYSIS_ARTIFACT_MISMATCH",
+                    "Staged OpenSees analysis differs from the verified generated analysis",
+                )
+            source_plan = resolve_workspace_file(
+                workspace,
+                generated["artifacts"]["responsePlanPath"],
+            )
+            staged_plan = run_dir / "response_plan.normalized.json"
+            shutil.copy2(source_plan, staged_plan)
+            staged_context = run_dir / "response_context.verified.json"
+            staged_context.write_text(
+                json.dumps(generated["responseContext"], indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        elif response_plan is not None:
             staged_plan = run_dir / "response_plan.normalized.json"
             staged_plan.write_text(
                 json.dumps(
@@ -344,7 +477,9 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "--result",
             str(worker_result),
         ]
-        if staged_plan is not None:
+        if staged_context is not None:
+            command.extend(["--response-context", str(staged_context)])
+        elif staged_plan is not None:
             command.extend(["--response-plan", str(staged_plan)])
         try:
             completed = subprocess.run(
@@ -408,15 +543,20 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 details={"runId": run_id},
             )
         structural_response = run_dir / "structural_response.json"
-        if response_plan is not None and not structural_response.is_file():
+        response_requested = response_plan is not None or generated is not None
+        if response_requested and not structural_response.is_file():
             raise FemCoreError(
                 "INVALID_SOLVER_RESULT",
-                "OpenSees response-plan run did not produce structural_response.json",
+                "OpenSees response run did not produce structural_response.json",
                 details={"runId": run_id},
             )
 
-        load: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
-        load_identity: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
+        load: dict[str, Any] = (
+            {"mode": "GENERATED_ANALYSIS_EMBEDDED"}
+            if generated is not None
+            else {"mode": "MODEL_SCRIPT_MANAGED"}
+        )
+        load_identity: dict[str, Any] = {"mode": load["mode"]}
         if load_path:
             load_file = resolve_workspace_file(workspace, load_path)
             load = {
@@ -427,6 +567,13 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             }
             load_identity = {"providedSha256": _sha256_file(load_file), "injected": False}
 
+        response_plan_sha = (
+            generated["artifacts"]["responsePlanSha256"]
+            if generated is not None
+            else response_plan["plan"]["sha256"]
+            if response_plan is not None
+            else None
+        )
         fingerprint_payload = json.dumps(
             {
                 "solver": "OPENSEESPY",
@@ -435,7 +582,10 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "bundleFingerprint": static["bundle"]["bundleFingerprint"],
                 "load": load_identity,
                 "analysis": "MODEL_SCRIPT",
-                "responsePlanSha256": response_plan["plan"]["sha256"] if response_plan is not None else None,
+                "responsePlanSha256": response_plan_sha,
+                "analysisRenderFingerprint": None
+                if generated is None
+                else generated["analysisRenderFingerprint"],
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -448,7 +598,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "solverLogSha256": _sha256_file(solver_log),
             "stagedBundleRoot": workspace_relative_path(workspace, stage_root),
         }
-        if response_plan is not None:
+        if response_requested:
             outputs["structuralResponse"] = workspace_relative_path(workspace, structural_response)
             outputs["structuralResponseSha256"] = _sha256_file(structural_response)
 
@@ -472,7 +622,18 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "files": static["bundle"]["files"],
             },
             "load": load,
-            "responsePlan": None if response_plan is None else dict(response_plan["plan"]),
+            "responsePlan": (
+                {
+                    "mode": "GENERATED_ANALYSIS_VERIFIED",
+                    "path": generated["artifacts"]["responsePlanPath"],
+                    "sha256": generated["artifacts"]["responsePlanSha256"],
+                }
+                if generated is not None
+                else None
+                if response_plan is None
+                else dict(response_plan["plan"])
+            ),
+            "generatedAnalysis": _generated_summary(generated),
             "analysis": worker.get("analysis"),
             "summary": worker.get("summary"),
             "outputs": outputs,

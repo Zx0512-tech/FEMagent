@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fem_core.analysis_spec import validate_engineering_analysis_spec
+from fem_core.analysis_spec import (
+    evaluate_engineering_analysis_readiness,
+    render_opensees_linear_static_analysis,
+    validate_engineering_analysis_spec,
+)
 from fem_core.cross_solver import validate_cross_solver
 from fem_core.errors import FemCoreError
 from fem_core.evidence.api import project_run_evidence
@@ -71,11 +75,11 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
     solver_options = _optional_object(payload, "solverOptions")
     normalized_solver = solver.strip().lower()
     if normalized_solver in {"opensees", "openseespy"} and solver_options is not None:
-        unsupported = sorted(set(solver_options) - {"responsePlanPath"})
+        unsupported = sorted(set(solver_options) - {"responsePlanPath", "analysisManifestPath"})
         if unsupported:
             raise FemCoreError(
                 "UNSUPPORTED_SOLVER_OPTIONS",
-                "OpenSees accepts only solverOptions.responsePlanPath in PR15",
+                "OpenSees accepts only responsePlanPath and analysisManifestPath in PR26",
                 details={"solver": solver, "unsupported": unsupported},
             )
     if normalized_solver in {"ansys", "mapdl", "ansys-mapdl"} and solver_options is not None:
@@ -117,6 +121,17 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = inspect_model(workspace, _required_text(payload, "path"))
         elif command == "analysisSpec.validate":
             result = validate_engineering_analysis_spec(_required_object(payload, "spec"))
+        elif command == "analysis.readiness":
+            result = evaluate_engineering_analysis_readiness(
+                _required_object(payload, "modelSpec"),
+                _required_object(payload, "analysisSpec"),
+            )
+        elif command == "analysis.renderOpenSees":
+            result = render_opensees_linear_static_analysis(
+                workspace,
+                _required_object(payload, "modelSpec"),
+                _required_object(payload, "analysisSpec"),
+            )
         elif command == "modelSpec.validate":
             result = validate_engineering_model_spec(_required_object(payload, "spec"))
         elif command == "modelSpec.readiness":

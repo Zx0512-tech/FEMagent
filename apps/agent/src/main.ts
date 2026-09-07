@@ -41,6 +41,7 @@ const { session } = await createAgentSession({
     "fem_model_spec_readiness",
     "fem_model_render_opensees",
     "fem_analysis_spec_validate",
+    "fem_analysis_prepare_opensees",
     "fem_load_inspect",
     "fem_load_standardize",
     "fem_solver_status",

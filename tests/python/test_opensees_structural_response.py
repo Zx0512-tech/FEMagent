@@ -5,9 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from fem_core.analysis_spec.opensees_renderer import render_opensees_linear_static_analysis
 from fem_core.errors import FemCoreError
+from fem_core.model_spec.validator import validate_engineering_model_spec
 from fem_core.result_intelligence import inspect_result, query_result
 from fem_core.solvers.registry import get_solver_adapter
+
+MODEL_FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
 
 
 def _beam_model(tmp_path: Path) -> str:
@@ -58,6 +62,37 @@ def _plan(tmp_path: Path, *, element_id: int = 41, component: str = "MZ") -> str
     return path.name
 
 
+def _render_generated_analysis(tmp_path: Path) -> dict[str, object]:
+    model = json.loads(MODEL_FIXTURE.read_text(encoding="utf-8"))
+    validation = validate_engineering_model_spec(model)
+    assert validation["status"] == "VALID"
+    analysis = {
+        "schemaVersion": "1.0",
+        "kind": "engineering_analysis_spec",
+        "modelSpecFingerprint": validation["modelSpecFingerprint"],
+        "analysisType": "LINEAR_STATIC",
+        "units": {"force": "N"},
+        "loadCases": [
+            {
+                "loadCaseId": "LC1",
+                "nodalLoads": [{"nodeId": 3, "FX": 0.0, "FY": -10000.0, "MZ": 0.0}],
+            }
+        ],
+        "resultRequests": [
+            {
+                "requestId": "R_DISP",
+                "loadCaseId": "LC1",
+                "quantity": "DISPLACEMENT",
+                "target": {"type": "NODE", "id": 3},
+                "component": "Y",
+            }
+        ],
+    }
+    rendered = render_opensees_linear_static_analysis(tmp_path, model, analysis)
+    assert rendered["status"] == "RENDERED"
+    return rendered
+
+
 def test_real_opensees_beam_records_hashed_structural_response_and_queries_it(tmp_path: Path) -> None:
     adapter = get_solver_adapter("opensees")
     if not adapter.status()["available"]:
@@ -73,6 +108,7 @@ def test_real_opensees_beam_records_hashed_structural_response_and_queries_it(tm
     assert run["status"] == "COMPLETED"
     assert run["responsePlan"]["path"] == "response-plan.json"
     assert len(run["responsePlan"]["sha256"]) == 64
+    assert run.get("generatedAnalysis") is None
     assert len(run["outputs"]["structuralResponseSha256"]) == 64
     structural_path = tmp_path / run["outputs"]["structuralResponse"]
     assert structural_path.is_file()
@@ -104,6 +140,41 @@ def test_real_opensees_beam_records_hashed_structural_response_and_queries_it(tm
     assert result["referenceFrame"] == "ELEMENT_LOCAL"
     assert result["summary"]["sampleCount"] == 1
     assert result["summary"]["absolutePeak"] > 0.0
+
+
+def test_generated_run_keeps_private_context_and_verified_provenance(tmp_path: Path) -> None:
+    adapter = get_solver_adapter("opensees")
+    if not adapter.status()["available"]:
+        pytest.skip("opensees optional dependency is not installed")
+    rendered = _render_generated_analysis(tmp_path)
+    artifacts = rendered["artifacts"]
+    assert isinstance(artifacts, dict)
+
+    run = adapter.run(
+        tmp_path,
+        model_path=str(artifacts["analysisPath"]),
+        load_path=None,
+        solver_options={
+            "responsePlanPath": str(artifacts["responsePlanPath"]),
+            "analysisManifestPath": str(artifacts["manifestPath"]),
+        },
+    )
+
+    provenance = run["generatedAnalysis"]
+    assert provenance["status"] == "VERIFIED"
+    assert provenance["analysisRenderFingerprint"] == rendered["analysisRenderFingerprint"]
+    assert provenance["modelSpecFingerprint"] == rendered["input"]["modelSpecFingerprint"]
+    assert provenance["analysisSpecFingerprint"] == rendered["input"]["analysisSpecFingerprint"]
+    assert len(provenance["analysisManifestSha256"]) == 64
+
+    run_dir = tmp_path / ".femagent" / "runs" / run["runId"]
+    context = json.loads((run_dir / "response_context.verified.json").read_text(encoding="utf-8"))
+    staged_plan = json.loads((run_dir / "response_plan.normalized.json").read_text(encoding="utf-8"))
+    assert context["kind"] == "verified_structural_response_context"
+    assert context["channels"][0]["access"] == "NODE_DISP"
+    assert context["channels"][0]["unit"] == "m"
+    for forbidden in ("access", "dof", "index", "vectorLength", "unit"):
+        assert forbidden not in staged_plan["channels"][0]
 
 
 def test_opensees_response_plan_rejects_unproven_element_mapping_before_analysis(tmp_path: Path) -> None:

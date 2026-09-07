@@ -1,10 +1,18 @@
 export {
   type FemAnalysisElementGeneralizedForceRequest,
+  type FemAnalysisElementLocalForceMapping,
   type FemAnalysisLoadCase,
   type FemAnalysisNodalLoad,
+  type FemAnalysisNodeDispMapping,
   type FemAnalysisNodeDisplacementRequest,
   type FemAnalysisNodeReactionForceRequest,
+  type FemAnalysisNodeReactionMapping,
   type FemAnalysisNodeReactionMomentRequest,
+  type FemAnalysisReadiness,
+  type FemAnalysisReadinessCheckStatus,
+  type FemAnalysisReadinessStatus,
+  type FemAnalysisResponseMapping,
+  type FemAnalysisResponseUnit,
   type FemAnalysisResultRequest,
   type FemAnalysisResultTarget,
   type FemAnalysisSpecForceUnit,
@@ -15,6 +23,10 @@ export {
   type FemAnalysisSpecValidation,
   type FemAnalysisType,
   type FemEngineeringAnalysisSpecInput,
+  type FemOpenSeesAnalysisBlockedResult,
+  type FemOpenSeesAnalysisRenderedResult,
+  type FemOpenSeesAnalysisRenderArtifacts,
+  type FemOpenSeesAnalysisRenderResult,
 } from "./analysisSpecTypes.js";
 export {
   DEFAULT_BRIDGE_TIMEOUT_MS,
@@ -165,6 +177,8 @@ export {
 export {
   FemBridgeError,
   FemCoreError,
+  runFemAnalysisReadiness,
+  runFemAnalysisRenderOpenSees,
   runFemAnalysisSpecValidate,
   runFemCoreRequest,
   runFemCrossSolverValidation,
