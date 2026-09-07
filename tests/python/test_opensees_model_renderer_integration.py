@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
+from unittest import SkipTest
 
 from fem_core.model_spec import render_opensees_frame_2d
 from fem_core.opensees_python_inspection import inspect_opensees_python
@@ -44,7 +43,7 @@ def test_rendered_model_build_only_realizes_expected_domain_without_analysis(tmp
 
     adapter = OpenSeesBundleAdapter()
     if not adapter.status()["available"]:
-        pytest.skip("OpenSeesPy is not available in this environment")
+        raise SkipTest("OpenSeesPy is not available in this environment")
 
     build = adapter.build_inspect(tmp_path, model_path=report["artifacts"]["modelPath"])
 
