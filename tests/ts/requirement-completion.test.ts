@@ -62,13 +62,27 @@ function completeBeamDraft(): FemEngineeringRequirementDraft {
         unit: "m",
         evidence: { sourceId: "source_1", quote: "15m" },
       },
-      ...(["length", "force", "time"] as const).map((dimension, index) => ({
-        kind: "UNIT_DECLARATION" as const,
-        source: "USER_EXPLICIT" as const,
-        dimension,
-        value: (["m", "N", "s"] as const)[index]!,
+      {
+        kind: "UNIT_DECLARATION",
+        source: "USER_EXPLICIT",
+        dimension: "length",
+        value: "m",
         evidence: { sourceId: "source_2", quote: "单位用m、N、s" },
-      })),
+      },
+      {
+        kind: "UNIT_DECLARATION",
+        source: "USER_EXPLICIT",
+        dimension: "force",
+        value: "N",
+        evidence: { sourceId: "source_2", quote: "单位用m、N、s" },
+      },
+      {
+        kind: "UNIT_DECLARATION",
+        source: "USER_EXPLICIT",
+        dimension: "time",
+        value: "s",
+        evidence: { sourceId: "source_2", quote: "单位用m、N、s" },
+      },
       {
         kind: "YOUNGS_MODULUS",
         source: "USER_EXPLICIT",
