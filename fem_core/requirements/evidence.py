@@ -86,15 +86,14 @@ def _validate_unit_declaration(fact: dict[str, Any], quote: str) -> tuple[list[d
         return issues, ambiguous
 
     labels = {
-        "length": (r"(?:长度单位|length\s*unit)\s*(?:为|是|=|:)?\s*(m|cm|mm)\b", {"m", "cm", "mm"}),
-        "force": (r"(?:力单位|force\s*unit)\s*(?:为|是|=|:)?\s*(n|kn)\b", {"N", "kN"}),
-        "time": (r"(?:时间单位|time\s*unit)\s*(?:为|是|=|:)?\s*(s|ms)\b", {"s", "ms"}),
+        "length": r"(?:长度单位|length\s*unit)\s*(?:为|是|=|:)?\s*(m|cm|mm)\b",
+        "force": r"(?:力单位|force\s*unit)\s*(?:为|是|=|:)?\s*(n|kn)\b",
+        "time": r"(?:时间单位|time\s*unit)\s*(?:为|是|=|:)?\s*(s|ms)\b",
     }
     if dimension not in labels:
         ambiguous.append(_ambiguous("evidence.quote", "Unsupported unit-declaration dimension"))
         return issues, ambiguous
-    pattern, _ = labels[dimension]
-    match = re.search(pattern, normalized, re.IGNORECASE)
+    match = re.search(labels[dimension], normalized, re.IGNORECASE)
     if match is None:
         ambiguous.append(_ambiguous("evidence.quote", "Unit evidence must use a deterministic labeled declaration or canonical length/force/time triple"))
         return issues, ambiguous
@@ -122,7 +121,7 @@ def _validate_property(
     unit_alt = "|".join(re.escape(unit) for unit in sorted(allowed_units, key=len, reverse=True))
     match = re.search(
         rf"(?:{label_pattern})\s*(?:=|:|为|是)?\s*(?P<value>{_NUMBER})\s*(?P<unit>{unit_alt})",
-        unicodedata.normalize("NFKC", quote),
+        quote,
         re.IGNORECASE,
     )
     if match is None:
@@ -137,7 +136,7 @@ def _validate_property(
         if id_pattern is None:
             issues.append(_relation_mismatch(id_field, f"{id_field} cannot be evidenced for this fact kind"))
         else:
-            id_match = re.search(id_pattern, unicodedata.normalize("NFKC", quote), re.IGNORECASE)
+            id_match = re.search(id_pattern, quote, re.IGNORECASE)
             if id_match is None:
                 issues.append(_relation_mismatch(id_field, f"{id_field} was supplied but is not identified by the evidence quote"))
             elif int(id_match.group("id")) != fact[id_field]:
@@ -159,7 +158,7 @@ def _validate_node_coordinate(fact: dict[str, Any], quote: str) -> tuple[list[di
     return issues, []
 
 
-def _validate_three_ids(
+def _validate_relation_ids(
     fact: dict[str, Any],
     quote: str,
     *,
@@ -193,8 +192,7 @@ def _validate_constraint(fact: dict[str, Any], quote: str) -> tuple[list[dict[st
     if match is None:
         return [], [_ambiguous("evidence.quote", "Constraint evidence must use explicit DOF labels or the exact fixed alias")]
     node_token = match.group("cn_node") or match.group("cn_node_alt") or match.group("en_node")
-    recovered_dofs = set(re.findall(r"UX|UY|RZ", match.group("dofs"), re.IGNORECASE))
-    recovered_dofs = {dof.upper() for dof in recovered_dofs}
+    recovered_dofs = {dof.upper() for dof in re.findall(r"UX|UY|RZ", match.group("dofs"), re.IGNORECASE)}
     issues: list[dict[str, str]] = []
     if int(node_token) != fact.get("nodeId"):
         issues.append(_relation_mismatch("nodeId", "Constraint nodeId does not match evidence"))
@@ -273,7 +271,7 @@ def validate_explicit_evidence(
             fact,
             quote,
             label_pattern=r"(?:E|Young'?s?\s+modulus|杨氏模量|弹性模量)",
-            allowed_units=("Pa", "N/m²", "N/mm²", "kN/m²", "kN/mm²"),
+            allowed_units=("Pa", "N/m²", "N/cm²", "N/mm²", "kN/m²", "kN/cm²", "kN/mm²"),
             id_field="materialId",
             id_pattern=r"(?:材料|material\s*)(?P<id>\d+)",
         )
@@ -306,7 +304,7 @@ def validate_explicit_evidence(
         issues.extend(more_issues)
         ambiguous.extend(more_ambiguous)
     elif kind == "ELEMENT_CONNECTIVITY":
-        more_issues, more_ambiguous = _validate_three_ids(
+        more_issues, more_ambiguous = _validate_relation_ids(
             fact,
             quote,
             pattern=_ELEMENT_CONNECTIVITY_RE,
@@ -316,7 +314,7 @@ def validate_explicit_evidence(
         issues.extend(more_issues)
         ambiguous.extend(more_ambiguous)
     elif kind == "ELEMENT_MATERIAL_REF":
-        more_issues, more_ambiguous = _validate_three_ids(
+        more_issues, more_ambiguous = _validate_relation_ids(
             fact,
             quote,
             pattern=_ELEMENT_MATERIAL_RE,
@@ -326,7 +324,7 @@ def validate_explicit_evidence(
         issues.extend(more_issues)
         ambiguous.extend(more_ambiguous)
     elif kind == "ELEMENT_SECTION_REF":
-        more_issues, more_ambiguous = _validate_three_ids(
+        more_issues, more_ambiguous = _validate_relation_ids(
             fact,
             quote,
             pattern=_ELEMENT_SECTION_RE,
