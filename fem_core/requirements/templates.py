@@ -118,7 +118,7 @@ def _derived_fact(
 def expand_beam_template(
     template_id: str,
     *,
-    span_value: float | int,
+    span_value: float,
     span_unit: str,
 ) -> dict[str, Any]:
     if template_id not in TEMPLATE_ALIASES:
