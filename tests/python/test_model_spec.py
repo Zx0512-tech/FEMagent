@@ -8,7 +8,6 @@ from pathlib import Path
 
 from fem_core.model_spec import validate_engineering_model_spec
 
-
 FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
 
 
