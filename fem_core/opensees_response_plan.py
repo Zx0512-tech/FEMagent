@@ -7,24 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.errors import FemCoreError
+from fem_core.opensees_response_mapping import resolve_opensees_response_access
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.structural_response import normalize_structural_query
 
 _CHANNEL_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 _TOP_LEVEL_KEYS = {"schemaVersion", "kind", "channels"}
 _CHANNEL_KEYS = {"channelId", "quantity", "target", "component", "location"}
-
-# OpenSees ElasticBeam2d localForce returns [N_i, V_i, Mz_i, N_j, V_j, Mz_j].
-# This is intentionally the only PR15 V1 generalized-force mapping until another
-# formulation is proven by a real runtime test.
-_ELASTIC_BEAM_2D_LOCAL_FORCE = {
-    ("N", "END_I"): 0,
-    ("VY", "END_I"): 1,
-    ("MZ", "END_I"): 2,
-    ("N", "END_J"): 3,
-    ("VY", "END_J"): 4,
-    ("MZ", "END_J"): 5,
-}
 
 
 def _invalid(message: str, **details: Any) -> FemCoreError:
@@ -43,7 +32,10 @@ def load_opensees_response_plan(workspace: Path, path: str) -> dict[str, Any]:
         raise _invalid("OpenSees Structural Response Plan must be a JSON object")
     unknown_top = sorted(set(payload) - _TOP_LEVEL_KEYS)
     if unknown_top:
-        raise _invalid("OpenSees Structural Response Plan contains unsupported top-level fields", fields=unknown_top)
+        raise _invalid(
+            "OpenSees Structural Response Plan contains unsupported top-level fields",
+            fields=unknown_top,
+        )
     if payload.get("schemaVersion") != "1.0":
         raise _invalid(
             "OpenSees Structural Response Plan schemaVersion must be '1.0'",
@@ -63,7 +55,10 @@ def load_opensees_response_plan(workspace: Path, path: str) -> dict[str, Any]:
     channels: list[dict[str, Any]] = []
     for index, raw_channel in enumerate(raw_channels):
         if not isinstance(raw_channel, dict):
-            raise _invalid("Each structural response channel must be a JSON object", channelIndex=index)
+            raise _invalid(
+                "Each structural response channel must be a JSON object",
+                channelIndex=index,
+            )
         unknown_channel = sorted(set(raw_channel) - _CHANNEL_KEYS)
         if unknown_channel:
             raise _invalid(
@@ -79,7 +74,10 @@ def load_opensees_response_plan(workspace: Path, path: str) -> dict[str, Any]:
                 channelId=channel_id,
             )
         if channel_id in channel_ids:
-            raise _invalid("Structural Response Plan contains a duplicate channelId", channelId=channel_id)
+            raise _invalid(
+                "Structural Response Plan contains a duplicate channelId",
+                channelId=channel_id,
+            )
         channel_ids.add(channel_id)
 
         query = {key: value for key, value in raw_channel.items() if key != "channelId"}
@@ -109,30 +107,29 @@ def load_opensees_response_plan(workspace: Path, path: str) -> dict[str, Any]:
     }
 
 
-def opensees_response_mapping(channel: dict[str, Any], *, element_type: str) -> dict[str, Any]:
-    if channel.get("quantity") == "GENERALIZED_FORCE" and element_type == "ElasticBeam2d":
-        key = (str(channel.get("component")), str(channel.get("location")))
-        index = _ELASTIC_BEAM_2D_LOCAL_FORCE.get(key)
-        if index is not None:
-            return {
-                "response": "localForce",
-                "index": index,
-                "vectorLength": 6,
-                "referenceFrame": "ELEMENT_LOCAL",
-                "unit": None,
-            }
-    raise FemCoreError(
-        "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
-        "OpenSees element formulation does not have a proven canonical structural-response mapping",
-        details={
-            "channelId": channel.get("channelId"),
-            "quantity": channel.get("quantity"),
-            "component": channel.get("component"),
-            "location": channel.get("location"),
-            "target": channel.get("target"),
-            "elementType": element_type,
-        },
-    )
+def opensees_response_mapping(
+    channel: dict[str, Any],
+    *,
+    element_type: str,
+) -> dict[str, Any]:
+    access = resolve_opensees_response_access(channel, element_type=element_type)
+    if access.get("access") != "ELEMENT_LOCAL_FORCE":
+        raise FemCoreError(
+            "STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE",
+            "Legacy OpenSees response plans support only proven element response mappings",
+            details={
+                "channelId": channel.get("channelId"),
+                "target": channel.get("target"),
+                "quantity": channel.get("quantity"),
+            },
+        )
+    return {
+        "response": access["response"],
+        "index": access["index"],
+        "vectorLength": access["vectorLength"],
+        "referenceFrame": access["referenceFrame"],
+        "unit": None,
+    }
 
 
 def validate_opensees_response_plan_domain(
