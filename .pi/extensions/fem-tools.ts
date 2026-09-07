@@ -31,6 +31,9 @@ const solverOptions = Type.Object({
   responsePlanPath: Type.Optional(Type.String({
     description: "Workspace-relative strict OpenSees Structural Response Plan path. This is a JSON plan path only, never recorder commands or arbitrary arguments.",
   })),
+  analysisManifestPath: Type.Optional(Type.String({
+    description: "Workspace-relative PR26 generated-analysis manifest path. For FEMagent-rendered OpenSees analysis bundles it must be paired with responsePlanPath.",
+  })),
 });
 
 const resultQuantity = Type.Union(
@@ -259,6 +262,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "Call fem_solver_preflight before fem_solver_run and resolve BLOCKED checks before requesting execution.",
       "For OpenSees Python model bundles, loadPath may be omitted when the model script owns its load and analysis definition.",
       "For OpenSees structural recording, solverOptions.responsePlanPath may point only to FEMagent's strict Structural Response Plan JSON; never pass recorder strings, commands, or arbitrary arguments.",
+      "For a generated-analysis OpenSees bundle, use the same solverOptions.responsePlanPath and solverOptions.analysisManifestPath that came from fem_analysis_prepare_opensees; loadPath must be omitted and admission is fail-closed on manifest, fingerprint, artifact, or realized-topology mismatch.",
       "For the controlled OpenSees ELASTIC_SDOF JSON model, a canonical FEMAGENT_LOAD_CSV_V1 load remains required.",
       "OpenSees does not accept ANSYS solverOptions.modelUnits and must fail closed when they are supplied.",
       "For ANSYS with loadPath, declare solverOptions.modelUnits.length and .time from deterministic project/user evidence; never guess model units.",
@@ -294,6 +298,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "fem_solver_run is an EXECUTION action. The permission gate must obtain user approval before the solver starts.",
       "OpenSees Python entrypoints may own their load/analysis definition; omitted loadPath is valid only when preflight reports MODEL_SCRIPT_MANAGED.",
       "For OpenSees structural recording, pass exactly the same strict solverOptions.responsePlanPath used for READY preflight; do not synthesize recorder commands or mutate the plan between preflight and run.",
+      "For a generated-analysis OpenSees bundle, pass exactly the same solverOptions.responsePlanPath and solverOptions.analysisManifestPath that produced READY preflight; do not supply loadPath or mutate generated artifacts between preflight and run.",
       "For ANSYS canonical injection, pass the same loadPath and solverOptions.modelUnits that produced READY preflight; do not alter or infer them between preflight and run.",
       "ANSYS runs must generate load artifacts and inject only into the staged Model Bundle, never the user's source model; inspect load/injection hashes and executionInputFingerprint in the run manifest.",
       "Do not execute a model whose static inspection, dependency graph, canonical-load injection check, structural response mapping check, or build-only inspection is blocked.",
