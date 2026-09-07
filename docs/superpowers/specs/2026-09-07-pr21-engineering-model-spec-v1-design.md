@@ -89,7 +89,7 @@ Semantic Roles remain explicit and model-bound through the existing Semantic Rol
 
 ## 5. EngineeringModelSpec V1 contract
 
-A valid V1 spec has the following top-level form:
+A V1 spec has the following top-level shape:
 
 ```json
 {
@@ -112,7 +112,16 @@ A valid V1 spec has the following top-level form:
 }
 ```
 
-Unknown fields are rejected. V1 is fail-closed rather than permissive.
+Unknown fields are rejected at every object level. V1 is fail-closed rather than permissive.
+
+For a spec to be `VALID`, V1 additionally requires at least:
+
+- 2 nodes;
+- 1 material;
+- 1 section;
+- 1 frame element.
+
+`constraints` and `nodalMasses` may be empty because PR21 validates model specification consistency, not global structural stability or analysis readiness.
 
 ### 5.1 Units
 
@@ -151,6 +160,7 @@ The validator must never see `2.06e11` and guess that it means Pa.
 
 Rules:
 
+- exactly `id`, `x`, and `y` are accepted;
 - `id` is a positive integer;
 - `x` and `y` are finite numbers;
 - node IDs are unique;
@@ -172,6 +182,7 @@ V1 supports one material type:
 
 Rules:
 
+- exactly `id`, `type`, and `youngsModulus` are accepted;
 - material ID is a positive integer and unique;
 - `type` must equal `LINEAR_ELASTIC`;
 - `youngsModulus` must be finite and strictly positive.
@@ -193,6 +204,7 @@ V1 supports one planar-frame section contract:
 
 Rules:
 
+- exactly `id`, `type`, `area`, and `iz` are accepted;
 - section ID is a positive integer and unique;
 - `type` must equal `FRAME_2D`;
 - `area` must be finite and strictly positive;
@@ -218,6 +230,7 @@ V1 supports one element type:
 
 Rules:
 
+- exactly `id`, `type`, `formulation`, `nodeI`, `nodeJ`, `materialId`, and `sectionId` are accepted;
 - element ID is a positive integer and unique;
 - `type` must equal `ELASTIC_FRAME_2D`;
 - `formulation` must equal `EULER_BERNOULLI`;
@@ -247,6 +260,8 @@ V1 does not support:
 }
 ```
 
+Only `nodeId` and `dofs` are accepted.
+
 Allowed DOFs:
 
 ```text
@@ -274,6 +289,8 @@ Constraint labels such as `FIXED`, `PINNED`, `ROLLER`, or `SUPPORT` are delibera
   "mUY": 1000.0
 }
 ```
+
+Exactly `nodeId`, `mUX`, and `mUY` are accepted.
 
 Rules:
 
@@ -345,7 +362,7 @@ Payload:
 
 ```json
 {
-  "spec": { }
+  "spec": {}
 }
 ```
 
@@ -456,6 +473,7 @@ Bridge/protocol failures remain hard errors through the existing `FemCoreError` 
 ```text
 MODEL_SPEC_INVALID_SCHEMA
 MODEL_SPEC_UNKNOWN_FIELD
+MODEL_SPEC_EMPTY_COLLECTION
 MODEL_SPEC_INVALID_ID
 MODEL_SPEC_INVALID_NUMBER
 MODEL_SPEC_UNSUPPORTED_VALUE
@@ -512,8 +530,10 @@ V1 must validate at least:
 - exact supported schema version and kind;
 - exact supported dimension/family/coordinate system;
 - required fields present;
-- unknown fields rejected;
-- required arrays are arrays.
+- unknown fields rejected recursively;
+- required arrays are arrays;
+- `nodes` contains at least 2 entries;
+- `materials`, `sections`, and `elements` each contain at least 1 entry.
 
 ### IDs
 
@@ -587,8 +607,22 @@ Normalization is deterministic and engineering-preserving:
 - constraints sorted by `nodeId`;
 - nodal masses sorted by `nodeId`;
 - constraint DOFs ordered canonically as `UX`, `UY`, `RZ`;
-- object keys serialized in a fixed implementation-defined canonical order;
-- numbers serialized as JSON numeric values without unit conversion.
+- no IDs are renumbered;
+- no engineering values are defaulted or converted.
+
+For fingerprint serialization, the normalized Python object is encoded as UTF-8 JSON with these exact settings:
+
+```python
+json.dumps(
+    normalized_spec,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=False,
+    allow_nan=False,
+)
+```
+
+This removes ambiguity about object-key order and whitespace. The validator must already have rejected non-finite numbers before this step.
 
 Normalization must not:
 
@@ -603,7 +637,8 @@ Normalization must not:
 For a `VALID` spec:
 
 ```text
-modelSpecFingerprint = SHA256(canonical normalized spec JSON bytes)
+canonicalBytes = UTF8(canonical JSON from section 14)
+modelSpecFingerprint = SHA256(canonicalBytes)
 ```
 
 The fingerprint is 64 lowercase hexadecimal characters.
@@ -680,6 +715,7 @@ PR21 follows RED -> GREEN TDD.
 At minimum:
 
 - missing required top-level field;
+- empty required collection;
 - unknown top-level and nested fields;
 - invalid primitive type;
 - unsupported schema/kind;
@@ -813,19 +849,20 @@ PR21 is complete only when all of the following are true:
 
 1. A stable 2D `FRAME` EngineeringModelSpec V1 contract exists.
 2. Python `fem_core` is the sole authoritative engineering validator.
-3. Schema validation is strict and unknown fields fail closed.
-4. Deterministic ID, property, connectivity, and cross-reference checks are implemented.
-5. Units are explicit and never guessed or converted.
-6. A valid spec produces a canonical normalized spec.
-7. A valid spec produces a deterministic SHA256 ModelSpec fingerprint.
-8. Equivalent engineering content with only ordering differences produces the same fingerprint.
-9. Engineering-content changes alter the fingerprint.
-10. Invalid ModelSpec content returns structured validation issues rather than crashing the bridge.
-11. `fem_model_spec_validate` is exposed as a SAFE/read-only Pi tool.
-12. No solver model is generated.
-13. No solver is executed.
-14. Existing Model Intelligence, Load Intelligence, Semantic Roles, Result Intelligence, Evidence, and Knowledge trust boundaries remain unchanged.
-15. Full repository CI passes on the exact final PR head.
+3. Schema validation is strict and unknown fields fail closed recursively.
+4. Required V1 structural collections cannot be empty.
+5. Deterministic ID, property, connectivity, and cross-reference checks are implemented.
+6. Units are explicit and never guessed or converted.
+7. A valid spec produces a canonical normalized spec.
+8. A valid spec produces a deterministic SHA256 ModelSpec fingerprint using the canonical serialization in section 14.
+9. Equivalent engineering content with only ordering differences produces the same fingerprint.
+10. Engineering-content changes alter the fingerprint.
+11. Invalid ModelSpec content returns structured validation issues rather than crashing the bridge.
+12. `fem_model_spec_validate` is exposed as a SAFE/read-only Pi tool.
+13. No solver model is generated.
+14. No solver is executed.
+15. Existing Model Intelligence, Load Intelligence, Semantic Roles, Result Intelligence, Evidence, and Knowledge trust boundaries remain unchanged.
+16. Full repository CI passes on the exact final PR head.
 
 ## 21. Forward path
 
