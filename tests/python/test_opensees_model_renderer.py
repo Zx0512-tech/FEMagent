@@ -8,8 +8,8 @@ import pytest
 
 from fem_core.errors import FemCoreError
 from fem_core.model_spec import opensees_renderer as renderer_module
-from fem_core.model_spec.opensees_renderer import render_opensees_frame_2d
 
+render_opensees_frame_2d = renderer_module.render_opensees_frame_2d
 
 FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
 
