@@ -17,6 +17,7 @@ const resourceLoader = new DefaultResourceLoader({
     resolve(cwd, ".pi/extensions/fem-tools.ts"),
     resolve(cwd, ".pi/extensions/permission-gate.ts"),
     resolve(cwd, ".pi/extensions/knowledge-tools.ts"),
+    resolve(cwd, ".pi/extensions/requirement-tools.ts"),
     resolve(cwd, ".pi/extensions/model-spec-tools.ts"),
   ],
 });
@@ -34,6 +35,7 @@ const { session } = await createAgentSession({
     "engiknow_search",
     "fem_health",
     "fem_model_inspect",
+    "fem_requirement_complete",
     "fem_model_spec_validate",
     "fem_model_spec_readiness",
     "fem_model_render_opensees",
