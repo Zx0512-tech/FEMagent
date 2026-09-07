@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import type {
+  FemAnalysisSpecValidation,
+  FemEngineeringAnalysisSpecInput,
+} from "./analysisSpecTypes.js";
 import {
   DEFAULT_BRIDGE_TIMEOUT_MS,
   DEFAULT_SOLVER_RUN_TIMEOUT_MS,
@@ -192,6 +196,19 @@ export async function runFemHealth(cwd: string, signal?: AbortSignal): Promise<F
 
 export async function runFemModelInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemAnyModelInspection> {
   return await runFemCoreRequest<FemAnyModelInspection>(cwd, "model.inspect", { path }, { signal });
+}
+
+export async function runFemAnalysisSpecValidate(
+  cwd: string,
+  spec: FemEngineeringAnalysisSpecInput,
+  signal?: AbortSignal,
+): Promise<FemAnalysisSpecValidation> {
+  return await runFemCoreRequest<FemAnalysisSpecValidation>(
+    cwd,
+    "analysisSpec.validate",
+    { spec },
+    { signal },
+  );
 }
 
 export async function runFemModelSpecValidate(

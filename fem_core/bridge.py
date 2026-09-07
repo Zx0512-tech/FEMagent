@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from fem_core.analysis_spec import validate_engineering_analysis_spec
 from fem_core.cross_solver import validate_cross_solver
 from fem_core.errors import FemCoreError
 from fem_core.evidence.api import project_run_evidence
@@ -114,6 +115,8 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = build_health_report()
         elif command == "model.inspect":
             result = inspect_model(workspace, _required_text(payload, "path"))
+        elif command == "analysisSpec.validate":
+            result = validate_engineering_analysis_spec(_required_object(payload, "spec"))
         elif command == "modelSpec.validate":
             result = validate_engineering_model_spec(_required_object(payload, "spec"))
         elif command == "modelSpec.readiness":
