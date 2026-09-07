@@ -31,7 +31,7 @@ Additional PR26 principles:
 - Model compilation must have one deterministic truth path shared by PR23 and PR26.
 - Response semantics and solver mappings must be resolved deterministically, not inferred by the renderer or worker ad hoc.
 - `response_plan.json` describes what to observe, not trusted units or arbitrary solver commands.
-- Generated analysis artifacts must be hash-bound and verified before solver execution.
+- Generated analysis artifacts must be semantically bound to the normalized ModelSpec and AnalysisSpec, not merely hash-consistent with a mutable manifest.
 - Renderer artifact creation is not solver execution and does not bypass the existing execution permission gate.
 
 ## 3. Scope
@@ -98,8 +98,8 @@ EngineeringAnalysisSpec ──┘          │
   "schema": "FEMAGENT_ANALYSIS_READINESS_V1",
   "status": "READY",
   "profile": "OPENSEES_FRAME_2D_LINEAR_STATIC_V1",
-  "modelSpecFingerprint": "...",
-  "analysisSpecFingerprint": "...",
+  "modelSpecFingerprint": "64-char-lowercase-sha256",
+  "analysisSpecFingerprint": "64-char-lowercase-sha256",
   "validation": {
     "modelSpec": {},
     "analysisSpec": {}
@@ -297,7 +297,7 @@ ops.integrator("LoadControl", 1.0)
 ops.analysis("Static")
 code = int(ops.analyze(1))
 if code != 0:
-    raise RuntimeError(...)
+    raise RuntimeError(f"FEMagent OpenSees linear-static analysis failed with code {code}")
 ```
 
 These are renderer-profile facts, not new AnalysisSpec fields.
@@ -330,6 +330,8 @@ The manifest records at minimum:
 - status: `RENDERED`.
 - analysisRenderId.
 - renderer name/version.
+- the full normalized ModelSpec used for rendering.
+- the full normalized AnalysisSpec used for rendering.
 - modelSpecFingerprint.
 - analysisSpecFingerprint.
 - readiness profile.
@@ -339,6 +341,8 @@ The manifest records at minimum:
 - workspace-relative artifact paths.
 - SHA256 for `analysis.py`, `response_plan.json`, and `analysis_readiness.json`.
 - `analysisRenderFingerprint`.
+
+The embedded normalized specs are required so solver preflight can independently reconstruct and revalidate the engineering meaning of the generated bundle. Fingerprints alone are insufficient to establish semantic consistency after files are mutable on disk.
 
 ### 8.6 Analysis render fingerprint
 
@@ -372,7 +376,7 @@ Blocked render:
 }
 ```
 
-Successful render:
+Successful render uses:
 
 ```text
 status = RENDERED
@@ -398,7 +402,7 @@ validated ModelSpec units
 
 and is recorded in Analysis Readiness and the analysis manifest.
 
-### 10.2 Generated-analysis manifest verification
+### 10.2 Generated-analysis semantic verification
 
 The existing OpenSees SolverAdapter remains the execution path.
 
@@ -415,22 +419,24 @@ A generated analysis run uses:
 - `solverOptions.responsePlanPath` = manifest response-plan path.
 - `solverOptions.analysisManifestPath` = manifest path.
 
-Preflight validates:
+Preflight must not merely trust manifest hashes. It must independently rebuild the engineering admission chain from the normalized specs embedded in the manifest:
 
-- manifest schema and renderer identity.
-- declared artifact paths.
-- analysis.py SHA256.
-- response-plan SHA256.
-- readiness-report SHA256.
-- analysisRenderFingerprint.
-- input path equality with manifest paths.
-- modelSpecFingerprint and analysisSpecFingerprint presence/format.
+1. Validate embedded ModelSpec.
+2. Validate embedded AnalysisSpec.
+3. Recompute both fingerprints and compare with manifest identities.
+4. Re-run Analysis Readiness and require `READY` with the supported profile.
+5. Rebuild the expected deterministic OpenSees analysis source from those normalized specs and compare its SHA256 to the actual `analysis.py` and manifest SHA.
+6. Rebuild the expected deterministic response plan from the normalized AnalysisSpec and compare its SHA256 to the actual `response_plan.json` and manifest SHA.
+7. Rebuild the expected readiness artifact and compare its SHA256 to the actual `analysis_readiness.json` and manifest SHA.
+8. Recompute `analysisRenderFingerprint`.
+9. Require the caller-provided modelPath, responsePlanPath, and analysisManifestPath to match the manifest-declared workspace-relative paths.
 
-Tampering or cross-bundle mixing is fail-closed.
+Therefore, simple file/hash editing and cross-bundle mixing fail closed before execution. PR26 does not claim cryptographic authenticity against an actor who can replace all bundle contents with a new internally valid engineering specification; it guarantees deterministic semantic consistency of the bundle presented for execution.
 
 Representative error codes:
 
 - `GENERATED_ANALYSIS_MANIFEST_INVALID`
+- `GENERATED_ANALYSIS_SPEC_INVALID`
 - `GENERATED_ANALYSIS_ARTIFACT_MISMATCH`
 - `GENERATED_ANALYSIS_PATH_MISMATCH`
 - `GENERATED_ANALYSIS_FINGERPRINT_MISMATCH`
@@ -479,7 +485,7 @@ PR26 does not introduce a new static-result artifact format.
 
 Existing arbitrary/user OpenSees Python bundles remain on the current response-plan path. Their result unit remains `null` unless separate trusted engineering evidence establishes units.
 
-Only a verified PR26 generated-analysis bundle may promote ModelSpec-derived response units into the worker result.
+Only a semantically verified PR26 generated-analysis bundle may promote ModelSpec-derived response units into the worker result.
 
 ## 11. Run-manifest provenance
 
@@ -636,17 +642,21 @@ Reordering canonicalizable ModelSpec/AnalysisSpec collections must preserve:
 
 Random render IDs may differ.
 
-### 16.5 Tamper tests
+### 16.5 Semantic-integrity and tamper tests
 
-After rendering, separately tamper with:
+After rendering, separately modify:
 
-- analysis.py.
-- response_plan.json.
-- readiness artifact.
+- analysis.py without updating the embedded specs.
+- response_plan.json without updating the embedded specs.
+- readiness artifact without updating the embedded specs.
 - manifest artifact paths.
 - manifest hashes/fingerprint.
+- one embedded normalized spec while leaving the rendered artifacts unchanged.
+- artifacts from two different render bundles by cross-mixing their paths.
 
 Solver preflight must fail closed before worker execution.
+
+A fully replaced bundle whose embedded normalized specs, readiness, generated source, response plan, and fingerprints are all mutually valid is treated as a new internally consistent engineering bundle; PR26 does not claim cryptographic provenance authentication.
 
 ### 16.6 Full golden path
 
@@ -738,13 +748,13 @@ PR26 is complete only when all of the following are true:
 4. Model and Analysis force units must match; no hidden conversion occurs.
 5. PR23 and PR26 share one deterministic ModelSpec-to-OpenSees model compiler.
 6. READY pairs render a standalone four-file OpenSees analysis bundle.
-7. Renderer never extracts numerical results and never executes the solver.
-8. Generated bundle identity is hash-bound and verified before execution.
-9. Trusted result units for generated analyses come only from verified ModelSpec/AnalysisSpec provenance.
-10. The isolated worker produces canonical `structural_response_series` for mixed node and element requests.
-11. Existing SolverAdapter preflight/run and execution permission boundaries remain the only solver execution path.
-12. One high-level `fem_analysis_prepare_opensees` Agent tool exposes CHECK/RENDER without multiplying permanent LLM-visible tools.
-13. Real OpenSees runtime tests prove node displacement/reaction and existing ElasticBeam2d mappings.
-14. Tampered generated-analysis bundles fail closed before execution.
+7. The manifest embeds the normalized ModelSpec and AnalysisSpec so preflight can reconstruct engineering meaning independently.
+8. Renderer never extracts numerical results and never executes the solver.
+9. Generated bundle semantics are revalidated and regenerated deterministically before execution; inconsistent file/hash/spec or cross-bundle combinations fail closed.
+10. Trusted result units for generated analyses come only from verified ModelSpec/AnalysisSpec provenance.
+11. The isolated worker produces canonical `structural_response_series` for mixed node and element requests.
+12. Existing SolverAdapter preflight/run and execution permission boundaries remain the only solver execution path.
+13. One high-level `fem_analysis_prepare_opensees` Agent tool exposes CHECK/RENDER without multiplying permanent LLM-visible tools.
+14. Real OpenSees runtime tests prove node displacement/reaction and existing ElasticBeam2d mappings.
 15. The full ModelSpec → AnalysisSpec → READY → RENDERED → solver preflight → solver run → Result Intelligence golden path passes.
 16. PR27 natural-language analysis completion remains outside PR26.
