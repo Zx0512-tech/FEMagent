@@ -1,0 +1,46 @@
+{
+  "schema": "FEMAGENT_KNOWLEDGE_FIXTURE_V1",
+  "provider": "FIXTURE",
+  "retrieval": {
+    "strategy": "fixture_exact",
+    "embeddingModel": null,
+    "rerankerModel": null
+  },
+  "queries": [
+    {
+      "match": "seismic time history",
+      "chunks": [
+        {
+          "chunkId": "chunk-seismic-001",
+          "documentId": "doc-sop-001",
+          "title": "Seismic Time-History Analysis Fixture",
+          "section": "Time Step",
+          "page": 4,
+          "content": "Fixture guidance only. It validates the integration contract and must never replace solver evidence; demo peak 9999 is synthetic.",
+          "source": "fixture://seismic-sop",
+          "retrievalScore": 0.98,
+          "rerankScore": null,
+          "metadata": {
+            "knowledgeBase": "fea",
+            "fixture": true
+          }
+        },
+        {
+          "chunkId": "chunk-evidence-002",
+          "documentId": "doc-boundary-002",
+          "title": "Knowledge and Solver Evidence Boundary Fixture",
+          "section": "Evidence Boundary",
+          "page": null,
+          "content": "Fixture text may guide methodology, but FEM numerical truth remains owned by recorded solver artifacts and Engineering Evidence.",
+          "source": "fixture://evidence-boundary",
+          "retrievalScore": 0.8,
+          "rerankScore": null,
+          "metadata": {
+            "knowledgeBase": "general",
+            "fixture": true
+          }
+        }
+      ]
+    }
+  ]
+}
