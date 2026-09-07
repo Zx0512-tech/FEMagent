@@ -13,6 +13,10 @@ import {
 import type { FemEngineeringEvidenceReport } from "./evidenceTypes.js";
 import type { FemAnyModelInspection } from "./modelTypes.js";
 import type {
+  FemEngineeringModelSpecInput,
+  FemModelSpecValidation,
+} from "./modelSpecTypes.js";
+import type {
   FemResultManifest,
   FemResultQuery,
   FemResultQueryRequest,
@@ -187,6 +191,19 @@ export async function runFemHealth(cwd: string, signal?: AbortSignal): Promise<F
 
 export async function runFemModelInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemAnyModelInspection> {
   return await runFemCoreRequest<FemAnyModelInspection>(cwd, "model.inspect", { path }, { signal });
+}
+
+export async function runFemModelSpecValidate(
+  cwd: string,
+  spec: FemEngineeringModelSpecInput,
+  signal?: AbortSignal,
+): Promise<FemModelSpecValidation> {
+  return await runFemCoreRequest<FemModelSpecValidation>(
+    cwd,
+    "modelSpec.validate",
+    { spec },
+    { signal },
+  );
 }
 
 export async function runFemLoadInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemLoadInspection> {
