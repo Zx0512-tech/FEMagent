@@ -28,14 +28,14 @@ test("ModelSpec readiness crosses the strict TypeScript/Python bridge", async ()
 });
 
 test("invalid ModelSpec content remains a typed readiness result", async () => {
-  const invalid = (await loadSpec()) as FemEngineeringModelSpecInput & {
-    units?: FemEngineeringModelSpecInput["units"];
-  };
+  const invalid = JSON.parse(
+    await readFile("tests/fixtures/model_spec/simple-portal-frame.json", "utf8"),
+  ) as Record<string, unknown>;
   delete invalid.units;
 
   const result = await runFemModelSpecReadiness(
     process.cwd(),
-    invalid as FemEngineeringModelSpecInput,
+    invalid as unknown as FemEngineeringModelSpecInput,
   );
 
   assert.equal(result.status, "INVALID_SPEC");
