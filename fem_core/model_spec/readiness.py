@@ -89,7 +89,7 @@ def _connected_components(spec: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _decimal(value: int | float) -> Decimal:
+def _decimal(value: float) -> Decimal:
     return Decimal(str(value))
 
 
