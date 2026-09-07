@@ -8,7 +8,6 @@ from fem_core.model_spec import render_opensees_frame_2d
 from fem_core.opensees_python_inspection import inspect_opensees_python
 from fem_core.solvers.opensees_python import OpenSeesBundleAdapter
 
-
 FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
 
 
