@@ -1,7 +1,7 @@
 # PR23 — OpenSees Frame 2D Renderer Design
 
 Date: 2026-09-07
-Status: approved design candidate
+Status: written spec pending user review
 Roadmap label: PR23 — OpenSees Renderer
 
 ## 1. Purpose
@@ -299,21 +299,33 @@ PR21 normalization already provides deterministic collection ordering, but the r
 
 Generated Python numeric literals must be deterministic for the same normalized numeric value.
 
-V1 rules:
+V1 uses one exact formatter for engineering floating-point values:
+
+```python
+def canonical_float(value):
+    numeric = float(value)
+    if numeric == 0.0:
+        return "0.0"
+    return repr(numeric)
+```
+
+The implementation may use an equivalent helper, but its emitted bytes must match this behavior.
+
+Therefore:
 
 - inputs must already be finite because PR21 rejects NaN and infinity;
-- negative zero must render as `0.0`;
-- integer-valued engineering floats retain a valid floating-point representation where appropriate;
-- floating-point literals use one canonical formatter with enough precision to round-trip the Python float value;
-- the renderer must not apply engineering-unit conversion, magnitude rounding, or tolerance-based cleanup.
+- `-0.0` renders as `0.0`;
+- `1.0` renders as `1.0`;
+- other values use Python's locale-independent shortest round-trip float representation;
+- the renderer applies no engineering-unit conversion, magnitude rounding, tolerance cleanup, or presentation formatting.
 
-The exact formatter is an implementation detail but must be fixed by golden tests and must not depend on locale.
+IDs and OpenSees integer flags/tags are rendered as decimal integers and do not use the float formatter.
 
 ## 9. Units
 
 The renderer performs no unit conversion.
 
-OpenSees accepts a consistent user-selected unit system. PR23 therefore preserves ModelSpec numerical values exactly and records the explicit ModelSpec unit declaration in the manifest.
+OpenSees accepts a consistent user-selected unit system. PR23 therefore preserves ModelSpec engineering values without unit transformation and records the explicit ModelSpec unit declaration in the manifest.
 
 Examples of supported ModelSpec unit declarations remain those already allowed by PR21, including combinations such as `m/N/s` or `mm/N/s`.
 
@@ -439,7 +451,7 @@ If the input object reaches ModelSpec evaluation but readiness is not `READY`, n
 
 `INVALID_SPEC` and `NOT_READY` both block rendering. The embedded readiness result remains the detailed source of diagnostic truth.
 
-A readiness profile other than `FRAME_2D_ELASTIC_READINESS_V1` is also blocked/fail-closed as unsupported.
+A readiness profile other than `FRAME_2D_ELASTIC_READINESS_V1` is an unsupported renderer invariant and fails closed with `OPENSEES_RENDER_UNSUPPORTED_PROFILE` rather than being treated as a valid render target.
 
 ## 13. Render Fingerprint
 
@@ -466,31 +478,31 @@ PR23 must not leave a partial render that resembles a successful artifact.
 
 Required sequence:
 
-1. validate/readiness evaluation completes;
+1. validation/readiness evaluation completes;
 2. complete `model.py` content is constructed in memory;
 3. hashes and manifest payload are constructed;
 4. a fresh render directory is created under `.femagent/generated-models/`;
 5. `model.py` and `render_manifest.json` are written;
-6. if any write fails, the new render directory is removed and a stable error is returned/raised.
+6. if any write fails, the new render directory is removed and a stable error is raised.
 
 An existing target render directory is never reused or overwritten.
 
 ## 15. Stable Error Semantics
 
-Expected normal engineering blockage is represented as `status = BLOCKED`, not as a generic exception.
+Expected engineering blockage is represented as `status = BLOCKED`, not as a generic exception.
 
-Stable renderer error codes cover abnormal transport/artifact failures and invariant violations, including:
+The existing bridge `_required_object(payload, "spec")` owns non-object payload rejection and returns the established `INVALID_ARGUMENT` error; PR23 does not introduce a duplicate renderer-specific code for that transport error.
+
+Renderer-specific abnormal errors are limited to artifact and invariant failures:
 
 ```text
-OPENSEES_RENDER_SPEC_NOT_OBJECT
-OPENSEES_RENDER_MODEL_NOT_READY
 OPENSEES_RENDER_UNSUPPORTED_PROFILE
 OPENSEES_RENDER_ARTIFACT_EXISTS
 OPENSEES_RENDER_WRITE_FAILED
 OPENSEES_RENDER_INTERNAL_INVARIANT
 ```
 
-`MODEL_NOT_READY` is the normal `reason` field in a `BLOCKED` result.
+`MODEL_NOT_READY` is the normal `reason` field in a `BLOCKED` result and is not raised as `OPENSEES_RENDER_MODEL_NOT_READY`.
 
 Unexpected faults remain subject to the existing bridge `INTERNAL_ERROR` boundary.
 
@@ -510,7 +522,7 @@ Payload:
 }
 ```
 
-The existing bridge invocation already has a working-directory/workspace boundary, so workspace must remain the bridge's controlled current workspace rather than becoming an arbitrary path supplied inside the engineering payload.
+`handle_request(..., workspace=Path)` already owns the workspace boundary. The command passes that bridge-controlled `workspace` to the Python renderer. No workspace/output path is accepted inside the payload.
 
 The bridge delegates directly to the Python renderer and does not reimplement mapping logic.
 
@@ -532,7 +544,7 @@ It must not:
 - generate Python source;
 - calculate engineering hashes independently from Python.
 
-## 18. Pi Tool and Permission Boundary
+## 18. Pi Tool and Write Boundary
 
 The public Agent tool is:
 
@@ -540,26 +552,20 @@ The public Agent tool is:
 fem_model_render_opensees
 ```
 
-Unlike PR21/22 validation tools, PR23 writes artifacts. It is therefore not classified as pure read-only.
+Unlike PR21/22 validation tools, PR23 creates generated artifacts and therefore must not describe itself as `SAFE and read-only`.
 
-The permission boundary is a controlled artifact-write capability, conceptually:
+The repository's current `.pi/extensions/permission-gate.ts` is intentionally narrow: it intercepts only `fem_solver_run` to obtain explicit confirmation for real solver execution. PR23 does not broaden that execution gate and does not classify rendering as solver execution.
 
-```text
-WRITE_ARTIFACT
-```
+Instead, the renderer's write authority is constrained structurally:
 
-It is strictly weaker than solver execution permission.
+- the Pi schema exposes `spec` only and exposes no `outputPath`;
+- the bridge supplies the existing controlled `ctx.cwd` workspace;
+- the Python renderer constructs the destination internally under `.femagent/generated-models/<renderId>/`;
+- a fresh render directory is required;
+- user source paths cannot be selected or overwritten;
+- shell execution and OpenSees execution are absent from the render path.
 
-The tool may only create a fresh `.femagent/generated-models/<renderId>/` artifact bundle. It may not:
-
-- execute shell commands;
-- run OpenSees;
-- write arbitrary user-selected paths;
-- overwrite workspace source files;
-- patch an existing model;
-- bypass readiness.
-
-If the current permission-gate implementation does not yet have a reusable named `WRITE_ARTIFACT` class, PR23 may use the nearest existing controlled-write mechanism, but the implementation must preserve this behavior boundary rather than granting solver-run or arbitrary-write capability.
+This is a controlled internal artifact write, not arbitrary workspace write access. PR23 does not introduce a new general permission-class framework merely to name this one capability.
 
 ## 19. Agent Workflow
 
@@ -597,12 +603,12 @@ PR23-generated source must intentionally fit the existing OpenSees Python inspec
 Expected static inspection for the golden portal-frame render:
 
 ```text
-classification          = MODEL_CONFIRMED
-dynamicGeneration       = false
-staticTopology.nodeCount    = expected ModelSpec node count
-staticTopology.elementCount = expected ModelSpec element count
-staticTopology.nodeTags     = ModelSpec node IDs
-staticTopology.elementTags  = ModelSpec element IDs
+classification              = MODEL_CONFIRMED
+dynamicGeneration           = false
+staticTopology.nodeCount     = expected ModelSpec node count
+staticTopology.elementCount  = expected ModelSpec element count
+staticTopology.nodeTags      = ModelSpec node IDs
+staticTopology.elementTags   = ModelSpec element IDs
 ```
 
 PR23 does not weaken AST safety rules to accommodate generated output. The generated output must satisfy the existing rules.
@@ -702,12 +708,12 @@ Where OpenSeesPy is present, invoke existing `OpenSeesBundleAdapter.build_inspec
 
 ### 22.9 Bridge / TypeScript / Pi Tests
 
-Follow existing PR21/22 TDD pattern:
+Follow the existing PR21/22 TDD pattern:
 
 - Python core RED/GREEN;
 - bridge unknown-command RED/GREEN;
 - TypeScript missing-export RED/GREEN;
-- Pi registration/permission RED/GREEN;
+- Pi registration/write-boundary RED/GREEN;
 - final full CI on exact PR head.
 
 ## 23. Explicit Non-Goals
