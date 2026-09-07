@@ -48,14 +48,11 @@ def _invalid_spec_result(validation: dict[str, Any]) -> dict[str, Any]:
 def _connected_components(spec: dict[str, Any]) -> list[dict[str, Any]]:
     node_ids = sorted(node["id"] for node in spec["nodes"])
     adjacency = {node_id: set() for node_id in node_ids}
-    element_by_pair: dict[tuple[int, int], list[int]] = {}
     for element in spec["elements"]:
         node_i = element["nodeI"]
         node_j = element["nodeJ"]
         adjacency[node_i].add(node_j)
         adjacency[node_j].add(node_i)
-        pair = tuple(sorted((node_i, node_j)))
-        element_by_pair.setdefault(pair, []).append(element["id"])
 
     components: list[dict[str, Any]] = []
     visited: set[int] = set()
