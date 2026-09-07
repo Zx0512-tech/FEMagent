@@ -76,6 +76,20 @@ def test_simple_support_geometry_has_rank_three() -> None:
     assert result["status"] == "READY"
 
 
+def test_three_constraints_can_still_have_rank_two_when_geometry_is_dependent() -> None:
+    spec = _load_spec()
+    spec["constraints"] = [
+        {"nodeId": 1, "dofs": ["UX", "UY"]},
+        {"nodeId": 4, "dofs": ["UY"]},
+    ]
+    result = evaluate_engineering_model_readiness(spec)
+
+    restraint = result["checks"]["rigidBodyRestraint"]["components"][0]
+    assert restraint["constraintRank"] == 2
+    assert restraint["deficiency"] == 1
+    assert result["status"] == "NOT_READY"
+
+
 def test_disconnected_fully_restrained_components_are_ready_with_warning() -> None:
     spec = _load_spec()
     template = spec["elements"][0]
