@@ -62,6 +62,31 @@ export {
   type FemOpenSeesRenderResult,
 } from "./modelSpecTypes.js";
 export { runFemModelSpecRenderOpenSees } from "./modelSpecRender.js";
+export { runFemRequirementComplete } from "./requirementCompletion.js";
+export {
+  type FemElementConnectivityRequirementFact,
+  type FemElementMaterialRefRequirementFact,
+  type FemElementSectionRefRequirementFact,
+  type FemEngineeringRequirementCompletion,
+  type FemEngineeringRequirementDraft,
+  type FemNodalMassRequirementFact,
+  type FemNodeConstraintRequirementFact,
+  type FemNodeCoordinateRequirementFact,
+  type FemRequirementCompletionStatus,
+  type FemRequirementDerivedFact,
+  type FemRequirementEvidence,
+  type FemRequirementFact,
+  type FemRequirementGap,
+  type FemRequirementIssue,
+  type FemRequirementSource,
+  type FemRequirementTemplateId,
+  type FemSectionAreaRequirementFact,
+  type FemSectionIzRequirementFact,
+  type FemSpanRequirementFact,
+  type FemTemplateIntent,
+  type FemUnitDeclarationRequirementFact,
+  type FemYoungsModulusRequirementFact,
+} from "./requirementTypes.js";
 export {
   type FemResultArtifact,
   type FemResultCapability,
