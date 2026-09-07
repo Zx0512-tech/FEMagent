@@ -124,9 +124,12 @@ def _validate_fact(fact: Any, index: int, issues: list[dict[str, str]]) -> None:
         _validate_evidence_shape(fact["evidence"], f"{path}.evidence", issues)
 
     positive_number_kinds = {"SPAN", "YOUNGS_MODULUS", "SECTION_AREA", "SECTION_IZ"}
-    if kind in positive_number_kinds and "value" in fact:
-        if not _is_finite_number(fact["value"]) or float(fact["value"]) <= 0:
-            issues.append(_issue("REQUIREMENT_DRAFT_INVALID_SCHEMA", f"{path}.value", f"{kind} value must be a positive finite number"))
+    if (
+        kind in positive_number_kinds
+        and "value" in fact
+        and (not _is_finite_number(fact["value"]) or float(fact["value"]) <= 0)
+    ):
+        issues.append(_issue("REQUIREMENT_DRAFT_INVALID_SCHEMA", f"{path}.value", f"{kind} value must be a positive finite number"))
 
     if kind == "SPAN" and fact.get("unit") not in {"m", "cm", "mm"}:
         issues.append(_issue("REQUIREMENT_DRAFT_INVALID_SCHEMA", f"{path}.unit", "SPAN unit must be m, cm, or mm"))
