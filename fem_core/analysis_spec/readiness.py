@@ -233,7 +233,7 @@ def evaluate_engineering_analysis_readiness(
     }
 
     constraints = {
-        int(item["nodeId"]): set(str(dof) for dof in item["dofs"])
+        int(item["nodeId"]): {str(dof) for dof in item["dofs"]}
         for item in normalized_model["constraints"]
     }
     unrestrained_requests: list[str] = []
