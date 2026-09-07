@@ -2,88 +2,84 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bind a valid `EngineeringModelSpec` and `EngineeringAnalysisSpec` through deterministic OpenSees V1 Analysis Readiness, render a standalone linear-static OpenSees analysis bundle, verify that bundle before execution, and record every PR25 V1 requested response through the existing isolated OpenSees worker and Result Intelligence path.
+**Goal:** Bind `EngineeringModelSpec` and `EngineeringAnalysisSpec` through deterministic OpenSees V1 Analysis Readiness, render a standalone linear-static OpenSees analysis bundle, verify it semantically before execution, and record every PR25 V1 result request through the existing isolated worker and Result Intelligence path.
 
-**Architecture:** Python `fem_core` remains the only engineering truth path. PR23 and PR26 share one pure ModelSpec-to-OpenSees source builder; PR26 adds a solver-specific joint readiness gate, deterministic resolved response mappings, a controlled four-file generated-analysis bundle, semantic manifest verification before execution, and a private worker response context. TypeScript and Pi expose only thin transport plus one high-level `fem_analysis_prepare_opensees` CHECK/RENDER tool; real solver execution remains exclusively behind the existing `fem_solver_preflight` / permission-gated `fem_solver_run` path.
+**Architecture:** Python `fem_core` remains the engineering truth path. PR23 and PR26 share one pure ModelSpec→OpenSees source compiler; PR26 adds joint readiness, resolved response mappings, a four-file generated-analysis bundle, semantic manifest verification, and a private worker response context. TypeScript/Pi remain transport and tool surfaces only. Solver execution remains exclusively behind existing `fem_solver_preflight` and permission-gated `fem_solver_run`.
 
-**Tech Stack:** Python >=3.13, pytest >=8.4,<9, Ruff >=0.12,<1, OpenSeesPy pinned through the existing `[opensees]` extra, TypeScript, Node >=22, pnpm, TypeBox, existing `femagent.bridge/v1`, existing OpenSees Python bundle adapter/worker, existing `structural_response_series` Result Intelligence.
+**Tech Stack:** Python >=3.13, pytest >=8.4,<9, Ruff >=0.12,<1, pinned OpenSeesPy through the existing `[opensees]` extra, Node >=22, TypeScript, pnpm, TypeBox, `femagent.bridge/v1`, current OpenSees Python adapter/worker, current `structural_response_series` Result Intelligence.
 
 **Spec:** `docs/superpowers/specs/2026-09-07-pr26-analysis-readiness-opensees-renderer-design.md`
 
 ## Global Constraints
 
-- V1 supports only ModelSpec `2D / FRAME / CARTESIAN_XY / ELASTIC_FRAME_2D / EULER_BERNOULLI` and AnalysisSpec `LINEAR_STATIC` with exactly one explicit load case.
-- Analysis Readiness statuses are exactly `INVALID_SPEC | NOT_READY | READY`; renderer statuses are exactly `BLOCKED | RENDERED`.
-- `READY` requires intrinsic ModelSpec/AnalysisSpec validity, Model Readiness, exact ModelSpec fingerprint binding, exact force-unit equality, existing load/result targets, valid reaction restraint semantics, and proven OpenSees response mappings for every request.
-- PR26 performs no unit conversion, load summation, target inference, sign correction, model repair, AnalysisSpec repair, Semantic Role inference, or solver-control inference.
-- Reaction requests are executable only on genuinely restrained DOFs: X→UX, Y→UY, Z moment→RZ.
-- Machine-readable moment units use `force*length` strings such as `N*m` and `kN*mm`; arbitrary OpenSees scripts retain `unit: null` unless separate trusted evidence exists.
-- PR23 and PR26 must share one deterministic ModelSpec-to-OpenSees construction source builder; PR23 public behavior and rendered bytes must remain unchanged.
-- PR26 generated `analysis.py` contains model construction, explicit nodal loads, fixed linear-static controls, and exactly one `ops.analyze(1)`; it contains no result extraction or subprocess execution.
-- Fixed OpenSees V1 static controls are: `Plain` constraints, `Plain` numberer, `BandGeneral` system, `Linear` algorithm, `LoadControl(1.0)`, `Static`, and one `analyze(1)`.
-- A successful render writes only under `.femagent/generated-analyses/analysis_render_<16 hex>/`; callers cannot choose an output path.
-- `response_plan.json` contains response identity only and is never a trusted source for unit, DOF/index, recorder commands, or solver arguments.
-- Generated-analysis execution must semantically revalidate the normalized ModelSpec and AnalysisSpec embedded in the manifest, recompute fingerprints/readiness, regenerate expected source/plan, and compare artifact hashes before worker execution.
-- Hash consistency is an integrity check, not cryptographic authenticity; PR26 guarantees deterministic semantic consistency with embedded normalized specs, not protection against a malicious actor who can replace all workspace artifacts and code.
-- SolverAdapter preflight/run remains the only execution path; `fem_analysis_prepare_opensees(mode=RENDER)` may write controlled artifacts but never executes OpenSees and never broadens the existing execution permission gate.
-- The worker consumes a private verified response execution context for generated analyses and must not independently reinterpret trusted engineering units or mappings.
-- PR26 continues emitting `kind = structural_response_series`; one linear-static solve produces one solver-native abscissa sample and must not label it seconds.
-- PR26 does not add ANSYS rendering, natural-language AnalysisSpec completion, multiple load cases, distributed/gravity/thermal loads, modal/transient/spectrum/nonlinear analysis, customizable solver controls, automatic repair, optimization, or new AnalysisSpec V1 fields.
+- V1 supports ModelSpec `2D / FRAME / CARTESIAN_XY / ELASTIC_FRAME_2D / EULER_BERNOULLI` and AnalysisSpec `LINEAR_STATIC` with exactly one explicit load case.
+- Analysis Readiness statuses are `INVALID_SPEC | NOT_READY | READY`; renderer statuses are `BLOCKED | RENDERED`.
+- `READY` requires intrinsic validity, Model Readiness, exact model fingerprint binding, exact force-unit equality, existing load/result targets, valid reaction restraint semantics, and proven OpenSees mappings for every result request.
+- No unit conversion, load summation, target inference, sign correction, repair, Semantic Role inference, or solver-control inference.
+- Reaction execution requires a restrained requested DOF: X→UX, Y→UY, Z moment→RZ.
+- Moment units use machine-readable `force*length`, for example `N*m`, `kN*m`, `N*mm`, `kN*mm`.
+- Arbitrary OpenSees Python bundles keep response `unit: null`; only verified PR26 generated analyses may promote ModelSpec-derived units.
+- PR23 and PR26 share one deterministic ModelSpec→OpenSees source compiler and PR23 rendered bytes/hashes remain unchanged.
+- Generated `analysis.py` contains model construction, explicit nodal loads, fixed static controls, and exactly one `ops.analyze(1)`; it contains no result extraction and no subprocess execution.
+- Fixed static controls are `Plain` constraints, `Plain` numberer, `BandGeneral` system, `Linear` algorithm, `LoadControl(1.0)`, `Static`, one `analyze(1)`.
+- Generated artifacts live only below `.femagent/generated-analyses/analysis_render_<16 hex>/`; callers cannot choose an output path.
+- `response_plan.json` carries response identity only; it never carries trusted units, DOF/index, recorder commands, or arbitrary solver arguments.
+- Generated-analysis preflight/run revalidate embedded normalized ModelSpec/AnalysisSpec, recompute fingerprints/readiness, regenerate expected source/plan, and compare artifacts before worker execution.
+- Legacy arbitrary response-plan execution remains on its existing element-only runtime-domain path; PR26 NODE channels enter the worker only through verified generated-analysis response context.
+- SolverAdapter remains the sole execution path. `fem_analysis_prepare_opensees(mode=RENDER)` may write controlled artifacts but never runs OpenSees and never broadens the current execution permission gate.
+- PR26 keeps `kind = structural_response_series`; static pseudo-time/load state is solver-native abscissa, not seconds.
+- PR26 excludes ANSYS rendering, PR27 natural-language completion, multiple load cases, distributed/gravity/thermal loads, modal/transient/spectrum/nonlinear analysis, customizable solver controls, repair, optimization, and new AnalysisSpec V1 fields.
 
 ---
 
 ## File Map
 
 ### Create
-
-- `fem_core/model_spec/opensees_source.py` — pure deterministic ModelSpec→OpenSees model construction source shared by PR23 and PR26.
-- `fem_core/opensees_response_mapping.py` — shared proven OpenSees response access mapping without trusting user-supplied units.
-- `fem_core/analysis_spec/readiness.py` — joint ModelSpec+AnalysisSpec readiness and resolved trusted response mappings.
-- `fem_core/analysis_spec/opensees_renderer.py` — standalone PR26 four-file generated-analysis renderer.
-- `fem_core/solvers/opensees_generated_analysis.py` — semantic generated-analysis manifest verification and private response-context construction.
-- `tests/python/test_analysis_readiness.py` — joint readiness contract and PR25/PR26 boundary.
-- `tests/python/test_opensees_analysis_renderer.py` — generated bundle content, blocking, determinism, cleanup.
-- `tests/python/test_analysis_render_bridge.py` — `analysis.readiness` / `analysis.renderOpenSees` bridge contract.
-- `tests/python/test_generated_opensees_analysis.py` — generated manifest integrity/semantic verification and tamper fail-closed tests.
-- `tests/python/test_pr26_golden_path.py` — end-to-end READY→RENDERED→preflight→run→Result Intelligence integration.
-- `tests/ts/analysis-readiness.test.ts` — TypeScript readiness/render transport contract.
-- `tests/ts/analysis-prepare-tool-registration.test.ts` — high-level CHECK/RENDER Agent surface and safety boundary.
+- `fem_core/model_spec/opensees_source.py` — shared pure ModelSpec→OpenSees construction compiler.
+- `fem_core/opensees_response_mapping.py` — proven solver access mapping and trusted-unit derivation helpers.
+- `fem_core/analysis_spec/readiness.py` — joint ModelSpec+AnalysisSpec readiness.
+- `fem_core/analysis_spec/opensees_renderer.py` — four-file standalone analysis renderer.
+- `fem_core/solvers/opensees_generated_analysis.py` — generated-analysis semantic verifier and private response-context builder.
+- `tests/python/test_analysis_readiness.py`
+- `tests/python/test_opensees_analysis_renderer.py`
+- `tests/python/test_analysis_render_bridge.py`
+- `tests/python/test_generated_opensees_analysis.py`
+- `tests/python/test_pr26_golden_path.py`
+- `tests/ts/analysis-readiness.test.ts`
+- `tests/ts/analysis-prepare-tool-registration.test.ts`
 
 ### Modify
-
-- `fem_core/model_spec/opensees_renderer.py` — replace private source builder with shared pure compiler while preserving PR23 behavior.
-- `fem_core/analysis_spec/__init__.py` — export readiness and renderer.
-- `fem_core/opensees_response_plan.py` — consume shared untrusted response-access mapping for arbitrary OpenSees plans.
-- `fem_core/bridge.py` — add Analysis Readiness/render commands and allow controlled OpenSees `analysisManifestPath` solver option.
-- `fem_core/solvers/opensees_python.py` — verify generated bundles, add preflight check/provenance, stage private response context, pass it to worker.
-- `fem_core/solvers/opensees_worker.py` — sample NODE and ELEMENT channels from verified execution context; keep arbitrary response-plan units untrusted.
-- `tests/python/test_opensees_model_renderer.py` — regression-lock PR23 rendered bytes/hash after shared-compiler extraction.
-- `tests/python/test_opensees_response_plan.py` — shared access resolver compatibility for arbitrary plans.
-- `tests/python/test_opensees_structural_response.py` — real pinned-OpenSeesPy proof for node displacement/reactions plus existing element force mapping.
-- `packages/fem-tools/src/analysisSpecTypes.ts` — readiness/render result types.
-- `packages/fem-tools/src/pythonBridge.ts` — thin `analysis.readiness` / `analysis.renderOpenSees` wrappers.
-- `packages/fem-tools/src/index.ts` — export new types/wrappers.
-- `.pi/extensions/analysis-spec-tools.ts` — add one high-level `fem_analysis_prepare_opensees` CHECK/RENDER tool.
-- `.pi/extensions/fem-tools.ts` — allow `solverOptions.analysisManifestPath` for OpenSees preflight/run schema and guidance.
-- `apps/agent/src/main.ts` — allow the new high-level Analysis tool; do not add separate readiness/render tools.
+- `fem_core/model_spec/opensees_renderer.py`
+- `fem_core/analysis_spec/__init__.py`
+- `fem_core/opensees_response_plan.py`
+- `fem_core/bridge.py`
+- `fem_core/solvers/opensees_python.py`
+- `fem_core/solvers/opensees_worker.py`
+- `tests/python/test_opensees_model_renderer.py`
+- `tests/python/test_opensees_response_plan.py`
+- `tests/python/test_opensees_structural_response.py`
+- `packages/fem-tools/src/analysisSpecTypes.ts`
+- `packages/fem-tools/src/pythonBridge.ts`
+- `packages/fem-tools/src/index.ts`
+- `.pi/extensions/analysis-spec-tools.ts`
+- `.pi/extensions/fem-tools.ts`
+- `apps/agent/src/main.ts`
 
 ---
 
-### Task 1: Extract and Regression-Lock the Shared PR23 Model Compiler
+### Task 1: Shared PR23 Model Compiler
 
 **Files:**
 - Create: `fem_core/model_spec/opensees_source.py`
 - Modify: `fem_core/model_spec/opensees_renderer.py`
-- Modify: `tests/python/test_opensees_model_renderer.py`
+- Test: `tests/python/test_opensees_model_renderer.py`
 
 **Interfaces:**
-- Consumes: PR21-normalized ModelSpec `dict[str, Any]`.
-- Produces: `build_opensees_frame_2d_model_source(spec: dict[str, Any]) -> str` and `format_opensees_number(value: Any) -> str` for PR23/PR26 reuse.
-- PR23 `render_opensees_frame_2d(workspace, spec)` public report, source bytes, hashes, and manifest semantics remain unchanged.
+- Produces `build_opensees_frame_2d_model_source(spec: dict[str, Any]) -> str`.
+- Produces `format_opensees_number(value: Any) -> str`.
+- PR23 `render_opensees_frame_2d()` public result remains byte-for-byte compatible.
 
-- [ ] **Step 1: Add a RED regression test proving a public shared compiler does not yet exist**
-
-Add to `tests/python/test_opensees_model_renderer.py`:
+- [ ] **Step 1: Write the failing shared-compiler regression test**
 
 ```python
 from fem_core.model_spec.opensees_source import build_opensees_frame_2d_model_source
@@ -95,59 +91,56 @@ def test_shared_model_source_matches_pr23_rendered_model(tmp_path: Path) -> None
     validation = validate_engineering_model_spec(spec)
     assert validation["status"] == "VALID"
     expected = build_opensees_frame_2d_model_source(validation["normalizedSpec"])
-
     report = render_opensees_frame_2d(tmp_path, spec)
-    model_path = tmp_path / report["artifacts"]["modelPath"]
-    assert model_path.read_text(encoding="utf-8") == expected
+    actual = (tmp_path / report["artifacts"]["modelPath"]).read_text(encoding="utf-8")
+    assert actual == expected
 ```
 
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 python -m pytest tests/python/test_opensees_model_renderer.py::test_shared_model_source_matches_pr23_rendered_model -q
 ```
 
-Expected RED: `ModuleNotFoundError: fem_core.model_spec.opensees_source`.
+Expected: import failure for `fem_core.model_spec.opensees_source`.
 
-- [ ] **Step 2: Create the pure compiler by moving—not rewriting—the existing PR23 source logic**
+- [ ] **Step 3: Extract the current PR23 source logic without behavior changes**
 
-Create `fem_core/model_spec/opensees_source.py` with these exact public helpers:
+Create `opensees_source.py` with:
 
 ```python
-from __future__ import annotations
-
-from typing import Any
-
-from fem_core.errors import FemCoreError
-
 GEOM_TRANSF_TAG = 1
 
 
 def format_opensees_number(value: Any) -> str:
     number = float(value)
-    if number == 0.0:
-        return "0.0"
-    return repr(number)
+    return "0.0" if number == 0.0 else repr(number)
 
 
 def build_opensees_frame_2d_model_source(spec: dict[str, Any]) -> str:
-    ...
+    lines = [
+        "import openseespy.opensees as ops",
+        "",
+        "ops.wipe()",
+        'ops.model("basic", "-ndm", 2, "-ndf", 3)',
+        "",
+    ]
+    # Move the existing node, constraint, mass, geomTransf, material/section lookup,
+    # and elasticBeamColumn emission blocks here unchanged in ordering and literals.
+    # Preserve the existing OPENSEES_RENDER_INTERNAL_INVARIANT error for lost refs.
+    return "\n".join(lines) + "\n"
 ```
 
-Move the current `_lookup_by_id`, `_constraint_flags`, and `_render_source` behavior into this file without changing ordering, literals, `GEOM_TRANSF_TAG`, numeric formatting, or final newline. Raise `FemCoreError("OPENSEES_RENDER_INTERNAL_INVARIANT", ...)` for impossible lost material/section references exactly as PR23 does today.
+Implementation requirement: copy the current production blocks exactly from `fem_core/model_spec/opensees_renderer.py`; do not redesign them. Then replace PR23 private source generation with this helper.
 
-Modify `fem_core/model_spec/opensees_renderer.py` to import the new pure builder and `GEOM_TRANSF_TAG`, and remove the duplicated private source-building helpers.
-
-- [ ] **Step 3: Run focused and byte-level PR23 regression tests**
+- [ ] **Step 4: Run GREEN and PR23 regression**
 
 ```bash
 python -m pytest tests/python/test_opensees_model_renderer.py -q
 python -m ruff check fem_core/model_spec/opensees_source.py fem_core/model_spec/opensees_renderer.py tests/python/test_opensees_model_renderer.py
 ```
 
-Expected: PASS; existing PR23 deterministic render tests prove no public behavior drift.
-
-- [ ] **Step 4: Commit the isolated compiler extraction**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add fem_core/model_spec/opensees_source.py fem_core/model_spec/opensees_renderer.py tests/python/test_opensees_model_renderer.py
@@ -156,30 +149,22 @@ git commit -m "refactor: share deterministic OpenSees model source compiler"
 
 ---
 
-### Task 2: Proven Response Access Mapping and Joint Analysis Readiness
+### Task 2: Response Mapping + Analysis Readiness
 
 **Files:**
 - Create: `fem_core/opensees_response_mapping.py`
 - Create: `fem_core/analysis_spec/readiness.py`
 - Modify: `fem_core/analysis_spec/__init__.py`
 - Modify: `fem_core/opensees_response_plan.py`
-- Create: `tests/python/test_analysis_readiness.py`
-- Modify: `tests/python/test_opensees_response_plan.py`
+- Test: `tests/python/test_analysis_readiness.py`
+- Test: `tests/python/test_opensees_response_plan.py`
 
 **Interfaces:**
-- Consumes:
-  - `validate_engineering_model_spec(model_spec)`
-  - `evaluate_engineering_model_readiness(model_spec)`
-  - `validate_engineering_analysis_spec(analysis_spec)`
-- Produces:
-  - `resolve_opensees_response_access(channel: dict[str, Any], *, element_type: str | None = None) -> dict[str, Any]`
-  - `derive_response_unit(channel: dict[str, Any], model_units: dict[str, str]) -> str`
-  - `evaluate_engineering_analysis_readiness(model_spec: dict[str, Any], analysis_spec: dict[str, Any]) -> dict[str, Any]`
-- `resolve_opensees_response_access` returns access/selector/reference-frame only; trusted units are added only by Analysis Readiness through `derive_response_unit`.
+- Produces `resolve_opensees_response_access(channel, *, element_type=None)`.
+- Produces `derive_response_unit(channel, model_units)`.
+- Produces `evaluate_engineering_analysis_readiness(model_spec, analysis_spec)`.
 
-- [ ] **Step 1: Write RED readiness tests around one bound portal-frame helper**
-
-In `tests/python/test_analysis_readiness.py`, define deterministic helpers that bind AnalysisSpec to the actual fixture fingerprint instead of hard-coding stale hashes:
+- [ ] **Step 1: Write RED readiness tests with a bound AnalysisSpec helper**
 
 ```python
 def bound_analysis_spec(model_spec: dict[str, Any]) -> dict[str, Any]:
@@ -191,106 +176,54 @@ def bound_analysis_spec(model_spec: dict[str, Any]) -> dict[str, Any]:
         "modelSpecFingerprint": validation["modelSpecFingerprint"],
         "analysisType": "LINEAR_STATIC",
         "units": {"force": model_spec["units"]["force"]},
-        "loadCases": [
-            {
-                "loadCaseId": "LC1",
-                "nodalLoads": [{"nodeId": 3, "FX": 0.0, "FY": -10000.0, "MZ": 0.0}],
-            }
-        ],
+        "loadCases": [{
+            "loadCaseId": "LC1",
+            "nodalLoads": [{"nodeId": 3, "FX": 0.0, "FY": -10000.0, "MZ": 0.0}],
+        }],
         "resultRequests": [
-            {
-                "requestId": "R_DISP",
-                "loadCaseId": "LC1",
-                "quantity": "DISPLACEMENT",
-                "target": {"type": "NODE", "id": 3},
-                "component": "Y",
-            },
-            {
-                "requestId": "R_RY",
-                "loadCaseId": "LC1",
-                "quantity": "REACTION_FORCE",
-                "target": {"type": "NODE", "id": 1},
-                "component": "Y",
-            },
-            {
-                "requestId": "R_MZ",
-                "loadCaseId": "LC1",
-                "quantity": "REACTION_MOMENT",
-                "target": {"type": "NODE", "id": 1},
-                "component": "Z",
-            },
-            {
-                "requestId": "R_ELE_MZ",
-                "loadCaseId": "LC1",
-                "quantity": "GENERALIZED_FORCE",
-                "target": {"type": "ELEMENT", "id": 2},
-                "component": "MZ",
-                "location": "END_J",
-            },
+            {"requestId": "R_DISP", "loadCaseId": "LC1", "quantity": "DISPLACEMENT", "target": {"type": "NODE", "id": 3}, "component": "Y"},
+            {"requestId": "R_RY", "loadCaseId": "LC1", "quantity": "REACTION_FORCE", "target": {"type": "NODE", "id": 1}, "component": "Y"},
+            {"requestId": "R_MZ", "loadCaseId": "LC1", "quantity": "REACTION_MOMENT", "target": {"type": "NODE", "id": 1}, "component": "Z"},
+            {"requestId": "R_ELE_MZ", "loadCaseId": "LC1", "quantity": "GENERALIZED_FORCE", "target": {"type": "ELEMENT", "id": 2}, "component": "MZ", "location": "END_J"},
         ],
     }
 ```
 
-Add assertions for a valid pair:
+Assert valid pair → `READY`, profile `OPENSEES_FRAME_2D_LINEAR_STATIC_V1`, exact fingerprints, and responseMapping PASS.
 
-```python
-report = evaluate_engineering_analysis_readiness(model_spec, analysis_spec)
-assert report["schema"] == "FEMAGENT_ANALYSIS_READINESS_V1"
-assert report["status"] == "READY"
-assert report["profile"] == "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
-assert report["modelSpecFingerprint"] == analysis_spec["modelSpecFingerprint"]
-assert isinstance(report["analysisSpecFingerprint"], str)
-assert report["checks"]["responseMapping"]["status"] == "PASS"
-assert {item["requestId"] for item in report["checks"]["responseMapping"]["channels"]} == {
-    "R_DISP", "R_RY", "R_MZ", "R_ELE_MZ"
-}
+- [ ] **Step 2: Add RED cases for every joint boundary**
+
+Assert these exact outcomes:
+
+```text
+invalid ModelSpec -> INVALID_SPEC
+invalid AnalysisSpec -> INVALID_SPEC
+Model Readiness NOT_READY -> ANALYSIS_READINESS_MODEL_NOT_READY
+fingerprint mismatch -> ANALYSIS_READINESS_MODEL_FINGERPRINT_MISMATCH
+force unit mismatch -> ANALYSIS_READINESS_FORCE_UNIT_MISMATCH
+missing load node -> ANALYSIS_READINESS_LOAD_NODE_NOT_FOUND
+missing node result target -> ANALYSIS_READINESS_RESULT_NODE_NOT_FOUND
+missing element result target -> ANALYSIS_READINESS_RESULT_ELEMENT_NOT_FOUND
+reaction on unrestrained DOF -> ANALYSIS_READINESS_REACTION_DOF_UNRESTRAINED
 ```
 
-Run:
+Also assert a PR25-intrinsically-VALID target ID `999999` becomes PR26 `NOT_READY`.
+
+- [ ] **Step 3: Run RED**
 
 ```bash
 python -m pytest tests/python/test_analysis_readiness.py -q
 ```
 
-Expected RED: readiness module/function missing.
+Expected: missing readiness module/function.
 
-- [ ] **Step 2: Expand RED cases for every admission boundary before implementation**
+- [ ] **Step 4: Implement shared response access mapping**
 
-Add exact cases asserting issue codes and `NOT_READY` / `INVALID_SPEC`:
-
-```text
-invalid ModelSpec -> INVALID_SPEC
-invalid AnalysisSpec -> INVALID_SPEC
-ModelSpec Model Readiness NOT_READY -> ANALYSIS_READINESS_MODEL_NOT_READY
-modelSpecFingerprint mismatch -> ANALYSIS_READINESS_MODEL_FINGERPRINT_MISMATCH
-AnalysisSpec force unit != ModelSpec force unit -> ANALYSIS_READINESS_FORCE_UNIT_MISMATCH
-load node absent -> ANALYSIS_READINESS_LOAD_NODE_NOT_FOUND
-NODE result target absent -> ANALYSIS_READINESS_RESULT_NODE_NOT_FOUND
-ELEMENT result target absent -> ANALYSIS_READINESS_RESULT_ELEMENT_NOT_FOUND
-REACTION_FORCE X on node without UX restraint -> ANALYSIS_READINESS_REACTION_DOF_UNRESTRAINED
-REACTION_FORCE Y on node without UY restraint -> same code
-REACTION_MOMENT Z on node without RZ restraint -> same code
-```
-
-Also lock the PR25/PR26 boundary:
+Use exact mappings:
 
 ```python
-intrinsic = validate_engineering_analysis_spec(spec_with_node_999999)
-assert intrinsic["status"] == "VALID"
-combined = evaluate_engineering_analysis_readiness(model_spec, spec_with_node_999999)
-assert combined["status"] == "NOT_READY"
-assert "ANALYSIS_READINESS_LOAD_NODE_NOT_FOUND" in issue_codes(combined)
-```
-
-For `INVALID_SPEC`, assert dependent joint checks use `status == "SKIPPED"` and no trusted response mappings are emitted.
-
-- [ ] **Step 3: Implement the shared response-access resolver**
-
-Create `fem_core/opensees_response_mapping.py` with fixed V1 access mappings:
-
-```python
-_NODE_DOF = {"X": 1, "Y": 2, "Z": 3}
-_ELASTIC_BEAM_2D_LOCAL_FORCE = {
+NODE_DOF = {"X": 1, "Y": 2, "Z": 3}
+ELASTIC_BEAM_2D_LOCAL_FORCE = {
     ("N", "END_I"): 0,
     ("VY", "END_I"): 1,
     ("MZ", "END_I"): 2,
@@ -298,93 +231,55 @@ _ELASTIC_BEAM_2D_LOCAL_FORCE = {
     ("VY", "END_J"): 4,
     ("MZ", "END_J"): 5,
 }
-
-
-def resolve_opensees_response_access(
-    channel: dict[str, Any], *, element_type: str | None = None
-) -> dict[str, Any]:
-    quantity = channel.get("quantity")
-    component = channel.get("component")
-    if quantity == "DISPLACEMENT" and channel.get("target", {}).get("type") == "NODE":
-        return {"access": "NODE_DISP", "dof": _NODE_DOF[str(component)], "referenceFrame": "GLOBAL"}
-    if quantity in {"REACTION_FORCE", "REACTION_MOMENT"} and channel.get("target", {}).get("type") == "NODE":
-        return {"access": "NODE_REACTION", "dof": _NODE_DOF[str(component)], "referenceFrame": "GLOBAL"}
-    if quantity == "GENERALIZED_FORCE" and element_type == "ElasticBeam2d":
-        index = _ELASTIC_BEAM_2D_LOCAL_FORCE.get((str(component), str(channel.get("location"))))
-        if index is not None:
-            return {
-                "access": "ELEMENT_LOCAL_FORCE",
-                "response": "localForce",
-                "index": index,
-                "vectorLength": 6,
-                "referenceFrame": "ELEMENT_LOCAL",
-            }
-    raise FemCoreError("STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE", ...)
 ```
 
-Implement deterministic unit derivation separately:
-
-```python
-def derive_response_unit(channel: dict[str, Any], model_units: dict[str, str]) -> str:
-    force = model_units["force"]
-    length = model_units["length"]
-    quantity = channel["quantity"]
-    component = channel["component"]
-    if quantity == "DISPLACEMENT":
-        return length
-    if quantity == "REACTION_FORCE":
-        return force
-    if quantity == "REACTION_MOMENT":
-        return f"{force}*{length}"
-    if quantity == "GENERALIZED_FORCE" and component in {"N", "VY"}:
-        return force
-    if quantity == "GENERALIZED_FORCE" and component == "MZ":
-        return f"{force}*{length}"
-    raise FemCoreError("STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE", ...)
-```
-
-Modify `fem_core/opensees_response_plan.py` so arbitrary response plans reuse `resolve_opensees_response_access` but continue returning `unit: None`; do not let arbitrary plans call `derive_response_unit`.
-
-- [ ] **Step 4: Implement Analysis Readiness with compact validation and deterministic checks**
-
-Create `fem_core/analysis_spec/readiness.py` with constants:
-
-```python
-READINESS_SCHEMA = "FEMAGENT_ANALYSIS_READINESS_V1"
-READINESS_PROFILE = "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
-```
-
-Implementation order must be deterministic:
+Resolver behavior:
 
 ```text
-1. validate ModelSpec and AnalysisSpec intrinsically.
-2. INVALID_SPEC -> compact validation reports + all joint checks SKIPPED.
-3. evaluate Model Readiness; propagate non-ready as ANALYSIS_READINESS_MODEL_NOT_READY.
-4. compare AnalysisSpec.modelSpecFingerprint with current ModelSpec fingerprint.
-5. compare force units exactly; no conversion.
-6. validate every nodal-load node ID against ModelSpec nodes.
-7. validate every result target against ModelSpec node/element IDs.
-8. validate reaction requested DOF against normalized ModelSpec constraints.
-9. resolve every result request with the shared OpenSees resolver and trusted ModelSpec-derived unit.
-10. return READY only when no ERROR issues exist.
+NODE DISPLACEMENT -> access NODE_DISP + dof + GLOBAL
+NODE REACTION_FORCE/REACTION_MOMENT -> access NODE_REACTION + dof + GLOBAL
+ELEMENT GENERALIZED_FORCE on ElasticBeam2d -> access ELEMENT_LOCAL_FORCE + response localForce + index + vectorLength 6 + ELEMENT_LOCAL
+unsupported mapping -> FemCoreError STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE
 ```
 
-For normalized ModelSpec V1 `ELASTIC_FRAME_2D`, pass `element_type="ElasticBeam2d"` to the proven element response resolver because the shared PR23 compiler deterministically emits `elasticBeamColumn` for this profile.
+Unit derivation:
 
-Each successful resolved mapping preserves `requestId`, `quantity`, `target`, `component`, optional `location`, then adds `access`, DOF or index/response/vectorLength as applicable, `referenceFrame`, and trusted `unit`.
+```text
+DISPLACEMENT -> model length
+REACTION_FORCE -> model force
+REACTION_MOMENT -> force*length
+GENERALIZED_FORCE N/VY -> force
+GENERALIZED_FORCE MZ -> force*length
+```
 
-Export `evaluate_engineering_analysis_readiness` from `fem_core/analysis_spec/__init__.py`.
+Modify `opensees_response_plan.py` to reuse only the element access resolver for the legacy arbitrary response-plan path. Preserve its existing element-only domain restriction and `unit: null` behavior.
 
-- [ ] **Step 5: Run focused readiness and existing response-plan regressions**
+- [ ] **Step 5: Implement Analysis Readiness**
+
+Order checks deterministically:
+
+```text
+1 intrinsic ModelSpec validation
+2 intrinsic AnalysisSpec validation
+3 Model Readiness
+4 exact model fingerprint binding
+5 exact force-unit equality
+6 nodal load target existence
+7 result target existence
+8 reaction restraint DOF semantics
+9 response access resolution and trusted unit derivation
+```
+
+`INVALID_SPEC` returns compact validations and SKIPPED dependent checks. `NOT_READY` and `READY` remain normal domain results. For V1 `ELASTIC_FRAME_2D`, pass runtime element type `ElasticBeam2d` to the proven resolver.
+
+- [ ] **Step 6: Run GREEN**
 
 ```bash
 python -m pytest tests/python/test_analysis_readiness.py tests/python/test_opensees_response_plan.py -q
 python -m ruff check fem_core/opensees_response_mapping.py fem_core/analysis_spec/readiness.py fem_core/opensees_response_plan.py tests/python/test_analysis_readiness.py tests/python/test_opensees_response_plan.py
 ```
 
-Expected: PASS; arbitrary response plan unit behavior remains `None`.
-
-- [ ] **Step 6: Commit readiness and shared mapping**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add fem_core/opensees_response_mapping.py fem_core/analysis_spec/readiness.py fem_core/analysis_spec/__init__.py fem_core/opensees_response_plan.py tests/python/test_analysis_readiness.py tests/python/test_opensees_response_plan.py
@@ -393,38 +288,30 @@ git commit -m "feat: add OpenSees Analysis Readiness and response mappings"
 
 ---
 
-### Task 3: Deterministic Standalone OpenSees Analysis Renderer
+### Task 3: Standalone OpenSees Analysis Renderer
 
 **Files:**
 - Create: `fem_core/analysis_spec/opensees_renderer.py`
 - Modify: `fem_core/analysis_spec/__init__.py`
-- Create: `tests/python/test_opensees_analysis_renderer.py`
+- Test: `tests/python/test_opensees_analysis_renderer.py`
 
 **Interfaces:**
-- Consumes:
-  - `evaluate_engineering_analysis_readiness(model_spec, analysis_spec)`
-  - `validate_engineering_model_spec(model_spec)`
-  - `validate_engineering_analysis_spec(analysis_spec)`
-  - `build_opensees_frame_2d_model_source(normalized_model_spec)`
-- Produces: `render_opensees_linear_static_analysis(workspace: Path, model_spec: dict[str, Any], analysis_spec: dict[str, Any]) -> dict[str, Any]` with schema `FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1` and `BLOCKED | RENDERED`.
+- Produces `build_opensees_linear_static_analysis_source(normalized_model_spec, normalized_analysis_spec)`.
+- Produces `build_structural_response_plan(normalized_analysis_spec)`.
+- Produces `render_opensees_linear_static_analysis(workspace, model_spec, analysis_spec)`.
 
-- [ ] **Step 1: Write renderer RED tests for the exact four-file bundle**
+- [ ] **Step 1: Write RED four-file bundle tests**
 
-Use the bound portal-frame helper and assert:
+Assert successful render creates:
 
-```python
-report = render_opensees_linear_static_analysis(tmp_path, model_spec, analysis_spec)
-assert report["schema"] == "FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1"
-assert report["status"] == "RENDERED"
-assert report["renderer"] == {
-    "name": "OPENSEES_FRAME_2D_LINEAR_STATIC_V1",
-    "version": "1.0",
-}
-for key in ("analysisPath", "responsePlanPath", "readinessPath", "manifestPath"):
-    assert (tmp_path / report["artifacts"][key]).is_file()
+```text
+analysis.py
+response_plan.json
+analysis_readiness.json
+analysis_manifest.json
 ```
 
-Read `analysis.py` and assert exact controlled analysis tokens:
+Assert `analysis.py` contains:
 
 ```text
 ops.timeSeries("Linear", 1)
@@ -439,127 +326,64 @@ ops.analysis("Static")
 ops.analyze(1)
 ```
 
-Assert there is exactly one `ops.analyze(` occurrence and forbidden result/execution tokens are absent:
+Assert exactly one `ops.analyze(` and absence of `nodeDisp`, `nodeReaction`, `eleResponse`, `subprocess`, and result-file writing.
+
+- [ ] **Step 2: Add RED manifest/plan/determinism/blocking tests**
+
+`response_plan.json` must contain only `channelId`, `quantity`, `target`, `component`, optional `location`, sorted by requestId. It must not contain unit/access/dof/index/recorder metadata.
+
+Manifest must contain normalizedModelSpec, normalizedAnalysisSpec, both fingerprints, readiness profile, units, loadCaseId, trusted responseMappings, artifact paths/hashes, renderer identity, and analysisRenderFingerprint.
+
+Also assert:
 
 ```text
-nodeDisp
-nodeReaction
-eleResponse
-subprocess
-structural_response.json
+NOT_READY -> BLOCKED with ANALYSIS_NOT_READY and no partial directory
+semantic reordering -> identical source/plan/readiness hashes and analysisRenderFingerprint
+repeat render -> different renderId allowed, same deterministic content identity
+write failure -> cleanup + OPENSEES_ANALYSIS_RENDER_WRITE_FAILED
 ```
 
-Run:
+- [ ] **Step 3: Run RED**
 
 ```bash
 python -m pytest tests/python/test_opensees_analysis_renderer.py -q
 ```
 
-Expected RED: renderer module/function missing.
+- [ ] **Step 4: Implement renderer**
 
-- [ ] **Step 2: Add RED tests for response-plan identity, manifest semantics, blocking, and determinism**
-
-Assert generated `response_plan.json` uses:
-
-```json
-{
-  "schemaVersion": "1.0",
-  "kind": "structural_response_plan",
-  "channels": [
-    {
-      "channelId": "R_DISP",
-      "quantity": "DISPLACEMENT",
-      "target": {"type": "NODE", "id": 3},
-      "component": "Y"
-    }
-  ]
-}
-```
-
-with all requests sorted by `requestId`; no `unit`, `dof`, `index`, `access`, or recorder command fields are allowed.
-
-Assert `analysis_manifest.json` contains:
-
-```text
-schema = FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1
-status = RENDERED
-renderer name/version
-normalizedModelSpec
-normalizedAnalysisSpec
-modelSpecFingerprint
-analysisSpecFingerprint
-readinessProfile
-units
-loadCaseId
-responseMappings
-artifact paths + SHA256
-analysisRenderFingerprint
-```
-
-Add cases:
-
-```text
-NOT_READY pair -> BLOCKED, reason ANALYSIS_NOT_READY, no generated-analysis directory published
-same semantic ModelSpec/AnalysisSpec with reorderings -> identical analysis.py SHA, response_plan SHA, readiness SHA, analysisRenderFingerprint
-repeat render -> analysisRenderId may differ, deterministic content hashes/fingerprint remain equal
-write failure after fresh directory creation -> directory removed + OPENSEES_ANALYSIS_RENDER_WRITE_FAILED
-```
-
-- [ ] **Step 3: Implement minimal deterministic renderer**
-
-Create `fem_core/analysis_spec/opensees_renderer.py` with:
+Renderer constants:
 
 ```python
 RENDER_SCHEMA = "FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1"
 RENDERER_NAME = "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
 RENDERER_VERSION = "1.0"
 SUPPORTED_READINESS_PROFILE = "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
-
-
-def build_opensees_linear_static_analysis_source(
-    normalized_model_spec: dict[str, Any],
-    normalized_analysis_spec: dict[str, Any],
-) -> str:
-    ...
-
-
-def build_structural_response_plan(normalized_analysis_spec: dict[str, Any]) -> dict[str, Any]:
-    ...
-
-
-def render_opensees_linear_static_analysis(
-    workspace: Path,
-    model_spec: dict[str, Any],
-    analysis_spec: dict[str, Any],
-) -> dict[str, Any]:
-    ...
 ```
 
-Source construction must call the shared PR23 compiler, append one `Linear` time series and one `Plain` pattern, emit sorted normalized loads as `ops.load(nodeId, FX, FY, MZ)`, then fixed V1 static controls and exactly one analyze call with explicit nonzero-code failure.
-
-Build all JSON/source bytes in memory first. Create only `.femagent/generated-analyses/analysis_render_<16hex>/`. Write:
+Implementation sequence:
 
 ```text
-analysis.py
-response_plan.json
-analysis_readiness.json
-analysis_manifest.json
+rerun readiness
+BLOCKED unless READY
+revalidate both specs and require fingerprints agree with readiness
+build model source through shared PR23 compiler
+append sorted explicit loads and fixed V1 static controls
+build strict response plan from normalized resultRequests
+serialize exact readiness report
+compute source/plan/readiness SHA256
+compute analysisRenderFingerprint from canonical identity fields
+create fresh controlled directory
+write four files; cleanup on failed publication
 ```
 
-The manifest embeds normalized ModelSpec and normalized AnalysisSpec plus trusted readiness response mappings. Compute `analysisRenderFingerprint` from canonical JSON of renderer name/version, ModelSpec fingerprint, AnalysisSpec fingerprint, and SHA256 of analysis source, response plan, and readiness artifact; exclude random render ID and manifest path.
-
-Export `render_opensees_linear_static_analysis` from `fem_core/analysis_spec/__init__.py`.
-
-- [ ] **Step 4: Run renderer tests and full pre-solver Python regression**
+- [ ] **Step 5: Run GREEN**
 
 ```bash
 python -m pytest tests/python/test_opensees_analysis_renderer.py tests/python/test_opensees_model_renderer.py tests/python/test_analysis_readiness.py -q
 python -m ruff check fem_core/analysis_spec/opensees_renderer.py tests/python/test_opensees_analysis_renderer.py
 ```
 
-Expected: PASS.
-
-- [ ] **Step 5: Commit renderer**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add fem_core/analysis_spec/opensees_renderer.py fem_core/analysis_spec/__init__.py tests/python/test_opensees_analysis_renderer.py
@@ -568,7 +392,7 @@ git commit -m "feat: render standalone OpenSees linear-static analyses"
 
 ---
 
-### Task 4: Python Bridge, TypeScript Contracts, and One High-Level Analysis Tool
+### Task 4: Bridge, TypeScript Contract, High-Level Analysis Tool
 
 **Files:**
 - Modify: `fem_core/bridge.py`
@@ -582,41 +406,23 @@ git commit -m "feat: render standalone OpenSees linear-static analyses"
 - Create: `tests/ts/analysis-prepare-tool-registration.test.ts`
 
 **Interfaces:**
-- Produces bridge commands:
-  - `analysis.readiness` payload `{ modelSpec, analysisSpec }`
-  - `analysis.renderOpenSees` payload `{ modelSpec, analysisSpec }`
-- Produces TS wrappers:
-  - `runFemAnalysisReadiness(cwd, modelSpec, analysisSpec, signal?)`
-  - `runFemAnalysisRenderOpenSees(cwd, modelSpec, analysisSpec, signal?)`
-- Produces one Agent tool: `fem_analysis_prepare_opensees` with `mode: "CHECK" | "RENDER"`.
+- Bridge commands: `analysis.readiness`, `analysis.renderOpenSees`.
+- TS wrappers: `runFemAnalysisReadiness`, `runFemAnalysisRenderOpenSees`.
+- Agent tool: `fem_analysis_prepare_opensees` with `mode: CHECK | RENDER`.
 
-- [ ] **Step 1: Write Python bridge RED tests**
+- [ ] **Step 1: Write bridge RED tests**
 
-In `tests/python/test_analysis_render_bridge.py`, use bridge envelopes and assert:
+Assert READY/RENDERED, NOT_READY/BLOCKED as `ok=true`, and non-object modelSpec/analysisSpec as `INVALID_ARGUMENT`.
 
-```python
-ready = handle_request(request("analysis.readiness", model_spec, analysis_spec), workspace=tmp_path)
-assert ready["ok"] is True
-assert ready["result"]["status"] == "READY"
-
-rendered = handle_request(request("analysis.renderOpenSees", model_spec, analysis_spec), workspace=tmp_path)
-assert rendered["ok"] is True
-assert rendered["result"]["status"] == "RENDERED"
-```
-
-Also assert engineering `NOT_READY` / `BLOCKED` remain `ok=True`, while non-object `modelSpec` or `analysisSpec` returns bridge `INVALID_ARGUMENT`.
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 python -m pytest tests/python/test_analysis_render_bridge.py -q
 ```
 
-Expected RED: `UNKNOWN_COMMAND`.
+Expected: `UNKNOWN_COMMAND`.
 
-- [ ] **Step 2: Add bridge dispatch only; no engineering logic**
-
-In `fem_core/bridge.py` import the two AnalysisSpec capabilities and add:
+- [ ] **Step 3: Add bridge dispatch only**
 
 ```python
 elif command == "analysis.readiness":
@@ -632,101 +438,25 @@ elif command == "analysis.renderOpenSees":
     )
 ```
 
-Run the focused bridge tests and Ruff.
+- [ ] **Step 4: Write TypeScript RED tests and types**
 
-- [ ] **Step 3: Write TypeScript RED tests for exact command names and result typing**
+Add discriminated mapping types for NODE_DISP, NODE_REACTION, ELEMENT_LOCAL_FORCE plus readiness/render results. Add thin wrappers using exact bridge command strings. Export through `index.ts`. TypeScript must not calculate any engineering fact.
 
-In `tests/ts/analysis-readiness.test.ts`, call both wrappers with the existing fixture model plus a bound AnalysisSpec fixture/helper and assert:
+Run before implementation:
 
-```ts
-assert.equal(readiness.schema, "FEMAGENT_ANALYSIS_READINESS_V1");
-assert.equal(readiness.status, "READY");
-assert.equal(rendered.schema, "FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1");
-assert.equal(rendered.status, "RENDERED");
+```bash
+pnpm test:ts
 ```
 
-Before implementation, `pnpm test:ts` must fail because the new exports do not exist.
+Expected: missing new exports.
 
-- [ ] **Step 4: Add TS mirror types and thin bridge wrappers**
+- [ ] **Step 5: Write Agent registration RED test**
 
-Extend `packages/fem-tools/src/analysisSpecTypes.ts` with discriminated access mappings:
+Assert one tool `fem_analysis_prepare_opensees`, CHECK→readiness wrapper, RENDER→render wrapper, no `runFemSolverRun`, no `outputPath`, no separate public `fem_analysis_readiness`/`fem_analysis_render_opensees`, and Agent allow-list registration.
 
-```ts
-export type FemAnalysisReadinessStatus = "INVALID_SPEC" | "NOT_READY" | "READY";
-export type FemOpenSeesAnalysisRenderStatus = "BLOCKED" | "RENDERED";
+- [ ] **Step 6: Implement one high-level Analysis tool**
 
-export type FemAnalysisResponseMapping =
-  | {
-      requestId: string;
-      quantity: "DISPLACEMENT";
-      target: { type: "NODE"; id: number };
-      component: "X" | "Y";
-      access: "NODE_DISP";
-      dof: 1 | 2;
-      referenceFrame: "GLOBAL";
-      unit: string;
-    }
-  | {
-      requestId: string;
-      quantity: "REACTION_FORCE" | "REACTION_MOMENT";
-      target: { type: "NODE"; id: number };
-      component: "X" | "Y" | "Z";
-      access: "NODE_REACTION";
-      dof: 1 | 2 | 3;
-      referenceFrame: "GLOBAL";
-      unit: string;
-    }
-  | {
-      requestId: string;
-      quantity: "GENERALIZED_FORCE";
-      target: { type: "ELEMENT"; id: number };
-      component: "N" | "VY" | "MZ";
-      location: "END_I" | "END_J";
-      access: "ELEMENT_LOCAL_FORCE";
-      response: "localForce";
-      index: 0 | 1 | 2 | 3 | 4 | 5;
-      vectorLength: 6;
-      referenceFrame: "ELEMENT_LOCAL";
-      unit: string;
-    };
-```
-
-Add `FemAnalysisReadiness`, `FemOpenSeesAnalysisRenderArtifacts`, and `FemOpenSeesAnalysisRenderResult` matching Python fields exactly.
-
-In `pythonBridge.ts`, add thin wrappers using `runFemCoreRequest` and exact commands; do not derive any mapping or unit in TS. Export all new symbols from `index.ts`.
-
-- [ ] **Step 5: Write Agent registration RED tests before changing the extension**
-
-`tests/ts/analysis-prepare-tool-registration.test.ts` must inspect `.pi/extensions/analysis-spec-tools.ts` and `apps/agent/src/main.ts` and assert:
-
-```text
-fem_analysis_prepare_opensees is registered exactly once
-mode includes CHECK and RENDER
-CHECK calls runFemAnalysisReadiness
-RENDER calls runFemAnalysisRenderOpenSees
-extension does not import/call runFemSolverRun
-extension does not expose outputPath
-prompt text states READY/RENDERED do not mean solver execution
-app allow-list contains fem_analysis_prepare_opensees
-no separate fem_analysis_readiness or fem_analysis_render_opensees public tools are added
-```
-
-Run `pnpm test:ts`; expected RED only on the new registration expectations.
-
-- [ ] **Step 6: Implement one high-level CHECK/RENDER tool**
-
-Modify `.pi/extensions/analysis-spec-tools.ts` to reuse the existing strict ModelSpec and AnalysisSpec TypeBox schemas and register:
-
-```ts
-name: "fem_analysis_prepare_opensees"
-parameters: Type.Object({
-  mode: Type.Union([Type.Literal("CHECK"), Type.Literal("RENDER")]),
-  modelSpec: modelSpecSchema,
-  analysisSpec: analysisSpecSchema,
-}, { additionalProperties: false })
-```
-
-Execution:
+Use strict existing ModelSpec/AnalysisSpec TypeBox schemas and:
 
 ```ts
 const report = params.mode === "CHECK"
@@ -735,173 +465,115 @@ const report = params.mode === "CHECK"
 return toolResult(report);
 ```
 
-Guidance must state: CHECK is read-only; RENDER writes only controlled generated-analysis artifacts; neither runs OpenSees; do not mutate engineering facts to force READY; solver preflight and permission-gated solver run remain separate.
+Guidance must state CHECK is read-only; RENDER writes only controlled artifacts; neither runs a solver; READY/RENDERED are not execution success; engineering facts must not be mutated to force readiness.
 
-Add the tool name to `apps/agent/src/main.ts`; keep the temporary `fem_analysis_spec_validate` tool intact.
-
-- [ ] **Step 7: Run bridge/TS/registration regression and commit**
+- [ ] **Step 7: Run GREEN and commit**
 
 ```bash
 python -m pytest tests/python/test_analysis_render_bridge.py -q
 pnpm typecheck
 pnpm test:ts
 python -m ruff check fem_core/bridge.py tests/python/test_analysis_render_bridge.py
-```
 
-Expected: PASS.
-
-```bash
 git add fem_core/bridge.py tests/python/test_analysis_render_bridge.py packages/fem-tools/src/analysisSpecTypes.ts packages/fem-tools/src/pythonBridge.ts packages/fem-tools/src/index.ts tests/ts/analysis-readiness.test.ts .pi/extensions/analysis-spec-tools.ts apps/agent/src/main.ts tests/ts/analysis-prepare-tool-registration.test.ts
 git commit -m "feat: expose high-level OpenSees analysis preparation"
 ```
 
 ---
 
-### Task 5: Semantic Generated-Analysis Manifest Verification in Solver Preflight
+### Task 5: Generated-Analysis Semantic Verification in Solver Preflight
 
 **Files:**
 - Create: `fem_core/solvers/opensees_generated_analysis.py`
 - Modify: `fem_core/bridge.py`
 - Modify: `fem_core/solvers/opensees_python.py`
 - Modify: `.pi/extensions/fem-tools.ts`
-- Create: `tests/python/test_generated_opensees_analysis.py`
-- Modify: `tests/ts/analysis-prepare-tool-registration.test.ts`
+- Test: `tests/python/test_generated_opensees_analysis.py`
 
 **Interfaces:**
-- Produces:
-  - `verify_generated_analysis_bundle(workspace: Path, *, model_path: str, response_plan_path: str, manifest_path: str) -> dict[str, Any]`
-  - returned verified object contains parsed manifest, recomputed readiness, regenerated expected artifact hashes, and private `responseContext` channels.
-- OpenSees solver options expand from `{ responsePlanPath? }` to `{ responsePlanPath?, analysisManifestPath? }`.
-- `analysisManifestPath` is valid only together with a PR26 generated `.py` model and matching `responsePlanPath`; arbitrary scripts remain on the old path.
+- Produces `verify_generated_analysis_bundle(workspace, *, model_path, response_plan_path, manifest_path)`.
+- OpenSees solverOptions become `{ responsePlanPath?, analysisManifestPath? }` only.
 
-- [ ] **Step 1: Write RED semantic-verification tests using a freshly rendered bundle**
+- [ ] **Step 1: Write RED verifier test from a fresh rendered bundle**
 
-In `tests/python/test_generated_opensees_analysis.py` render the golden pair, then call:
+Assert verifier returns matching analysisRenderFingerprint, READY readiness, and private responseContext channel IDs matching the rendered requests.
 
-```python
-verified = verify_generated_analysis_bundle(
-    tmp_path,
-    model_path=report["artifacts"]["analysisPath"],
-    response_plan_path=report["artifacts"]["responsePlanPath"],
-    manifest_path=report["artifacts"]["manifestPath"],
-)
-assert verified["analysisRenderFingerprint"] == report["analysisRenderFingerprint"]
-assert verified["readiness"]["status"] == "READY"
-assert {channel["channelId"] for channel in verified["responseContext"]["channels"]} == {
-    "R_DISP", "R_RY", "R_MZ", "R_ELE_MZ"
-}
-```
+- [ ] **Step 2: Add RED tamper/mixing cases**
 
-Run the focused test; expected RED because verifier module is missing.
-
-- [ ] **Step 2: Add RED tamper/mixing cases before verifier implementation**
-
-Independently mutate and assert exact fail-closed `FemCoreError` codes:
+Exact error classes:
 
 ```text
-invalid manifest schema/missing embedded specs -> GENERATED_ANALYSIS_MANIFEST_INVALID
-modelPath differs from manifest analysisPath -> GENERATED_ANALYSIS_PATH_MISMATCH
-responsePlanPath differs from manifest responsePlanPath -> GENERATED_ANALYSIS_PATH_MISMATCH
-modify analysis.py only -> GENERATED_ANALYSIS_ARTIFACT_MISMATCH
-modify response_plan.json only -> GENERATED_ANALYSIS_ARTIFACT_MISMATCH
-modify readiness file only -> GENERATED_ANALYSIS_ARTIFACT_MISMATCH
-change embedded normalized ModelSpec without matching current fingerprint -> GENERATED_ANALYSIS_FINGERPRINT_MISMATCH
-change embedded normalized AnalysisSpec without matching current fingerprint -> GENERATED_ANALYSIS_FINGERPRINT_MISMATCH
-change manifest analysisRenderFingerprint -> GENERATED_ANALYSIS_FINGERPRINT_MISMATCH
+bad manifest schema or missing embedded specs -> GENERATED_ANALYSIS_MANIFEST_INVALID
+supplied model/plan paths differ from manifest -> GENERATED_ANALYSIS_PATH_MISMATCH
+changed analysis.py/response_plan/readiness bytes -> GENERATED_ANALYSIS_ARTIFACT_MISMATCH
+changed embedded spec/fingerprint or render fingerprint -> GENERATED_ANALYSIS_FINGERPRINT_MISMATCH
 ```
 
-Also test the stronger semantic case: mutate `analysis.py`, update its declared SHA and analysisRenderFingerprint to be internally hash-consistent, and assert verification still fails because regenerated expected source from embedded normalized specs does not match the artifact.
+Also mutate `analysis.py`, update manifest hash/fingerprint to be internally self-consistent, and assert failure because regenerated expected source from embedded normalized specs does not match actual source.
 
-- [ ] **Step 3: Implement semantic verifier with reconstruction, not manifest trust**
+- [ ] **Step 3: Run RED**
 
-Create `fem_core/solvers/opensees_generated_analysis.py`.
+```bash
+python -m pytest tests/python/test_generated_opensees_analysis.py -q
+```
 
-Validation sequence:
+- [ ] **Step 4: Implement semantic verifier**
+
+Verification order:
 
 ```text
-1. resolve all paths with existing workspace path helpers.
-2. parse manifest UTF-8 JSON and require exact PR26 schema/renderer identity plus embedded normalizedModelSpec/normalizedAnalysisSpec.
-3. require supplied model_path and response_plan_path to equal manifest workspace-relative paths exactly.
-4. revalidate embedded ModelSpec and AnalysisSpec through authoritative validators.
-5. require recomputed fingerprints to equal manifest fingerprints.
-6. rerun Analysis Readiness from the embedded normalized specs and require READY plus exact readiness profile.
-7. regenerate expected analysis source with build_opensees_linear_static_analysis_source().
-8. regenerate expected response plan with build_structural_response_plan().
-9. canonical-serialize recomputed readiness exactly as renderer does.
-10. compare actual file bytes/SHA256 to regenerated expected bytes and manifest hashes.
-11. recompute analysisRenderFingerprint with the same renderer helper and compare.
-12. build a private responseContext from the recomputed readiness resolved mappings, never from user response-plan unit fields.
+resolve workspace paths
+parse exact PR26 manifest schema/renderer identity
+require supplied paths equal manifest paths
+revalidate embedded normalized ModelSpec/AnalysisSpec
+recompute and compare both fingerprints
+rerun Analysis Readiness and require READY/profile
+regenerate expected analysis source
+regenerate expected response plan
+serialize recomputed readiness with renderer serialization contract
+compare expected bytes/hashes with actual artifacts and manifest hashes
+recompute analysisRenderFingerprint
+construct private responseContext from recomputed readiness mappings
 ```
 
-Return only verified deterministic data needed by adapter/worker; do not execute the solver or publish public artifacts.
+Never read trusted unit/access fields from `response_plan.json`.
 
-- [ ] **Step 4: Extend OpenSees solverOptions contract and bridge allow-list**
+- [ ] **Step 5: Extend solverOptions without weakening legacy path**
 
-In `fem_core/bridge.py`, OpenSees `_solver_call_arguments` must accept exactly:
+`bridge.py` OpenSees allow-list becomes exactly:
 
 ```python
 {"responsePlanPath", "analysisManifestPath"}
 ```
 
-and continue rejecting all other solver options.
+`.pi/extensions/fem-tools.ts` adds optional `analysisManifestPath` and guidance requiring it to come from the same PR26 render as responsePlanPath.
 
-In `.pi/extensions/fem-tools.ts`, add optional:
+- [ ] **Step 6: Integrate verifier into preflight**
 
-```ts
-analysisManifestPath: Type.Optional(Type.String({
-  description: "Workspace-relative PR26 generated-analysis manifest; used only to verify a generated OpenSees analysis bundle before execution.",
-}))
-```
-
-Guidance must require the manifest path and response-plan path returned by the same PR26 render and forbid inventing/mixing them.
-
-- [ ] **Step 5: Integrate verifier into `OpenSeesBundleAdapter.preflight`**
-
-In `fem_core/solvers/opensees_python.py`, parse both options without weakening arbitrary-script behavior:
+Rules:
 
 ```text
-no analysisManifestPath -> existing arbitrary Python response-plan path behavior remains unchanged
-analysisManifestPath provided -> responsePlanPath must also be provided; loadPath must be omitted for PR26 generated static script
+no analysisManifestPath -> existing arbitrary Python behavior unchanged and element-only response-plan domain validation remains active
+analysisManifestPath -> responsePlanPath required, loadPath omitted, semantic verifier required before build/run admission
 ```
 
-For generated analyses, call `verify_generated_analysis_bundle(...)` before build inspection and add preflight checks:
+For generated path, do not call the legacy element-only response-plan domain validator on mixed NODE/ELEMENT requests. After build inspection, require realized node/element tags to match embedded normalized ModelSpec IDs exactly. Add generated provenance checks and fingerprints to preflight report.
 
-```text
-GENERATED_ANALYSIS_MANIFEST = PASSED
-GENERATED_ANALYSIS_SEMANTICS = PASSED
-STRUCTURAL_RESPONSE_MAPPING = PASSED
-```
-
-Include in preflight model/provenance summary:
-
-```text
-analysisRenderFingerprint
-modelSpecFingerprint
-analysisSpecFingerprint
-analysisManifestSha256
-```
-
-Do not write the private response context during preflight; verification may construct it in memory only.
-
-- [ ] **Step 6: Run verifier/preflight tests and commit**
+- [ ] **Step 7: Run GREEN and commit**
 
 ```bash
 python -m pytest tests/python/test_generated_opensees_analysis.py tests/python/test_opensees_structural_response.py -q
 pnpm typecheck
 pnpm test:ts
 python -m ruff check fem_core/solvers/opensees_generated_analysis.py fem_core/solvers/opensees_python.py fem_core/bridge.py tests/python/test_generated_opensees_analysis.py
-```
 
-Expected: PASS.
-
-```bash
-git add fem_core/solvers/opensees_generated_analysis.py fem_core/bridge.py fem_core/solvers/opensees_python.py .pi/extensions/fem-tools.ts tests/python/test_generated_opensees_analysis.py tests/ts/analysis-prepare-tool-registration.test.ts
+git add fem_core/solvers/opensees_generated_analysis.py fem_core/bridge.py fem_core/solvers/opensees_python.py .pi/extensions/fem-tools.ts tests/python/test_generated_opensees_analysis.py
 git commit -m "feat: verify generated OpenSees analysis bundles before execution"
 ```
 
 ---
 
-### Task 6: Verified Worker Response Context and Real OpenSees Mapping Proof
+### Task 6: Verified Worker Response Context + Real Mapping Proof
 
 **Files:**
 - Modify: `fem_core/solvers/opensees_python.py`
@@ -910,29 +582,14 @@ git commit -m "feat: verify generated OpenSees analysis bundles before execution
 - Modify: `tests/python/test_generated_opensees_analysis.py`
 
 **Interfaces:**
-- Generated-analysis `run()` stages a private JSON response context under the run directory and passes `--response-context <path>` to `opensees_worker --mode script-run`.
-- Worker response context schema is internal: `schemaVersion: "1.0"`, `kind: "opensees_response_execution_context"`, non-empty `channels` with already verified `access`, target, selector, unit, and reference frame.
-- Arbitrary/user Python models without `analysisManifestPath` keep the existing `--response-plan` path and continue recording `unit: null`.
+- Generated run stages private `response_context.verified.json` and passes `--response-context`.
+- Arbitrary run retains legacy `--response-plan` and untrusted units.
 
-- [ ] **Step 1: Add a real pinned-OpenSeesPy RED/characterization test covering all PR25 V1 mapping classes**
+- [ ] **Step 1: Write a real pinned-OpenSeesPy cantilever test**
 
-Extend `tests/python/test_opensees_structural_response.py` with a simple cantilever generated through ModelSpec+AnalysisSpec:
+Use `L=2.0 m`, `P=1000.0 N`, one fixed node, one free node, one elastic frame element, vertical tip load. Request tip displacement Y, support reaction Y, support reaction moment Z, element N/VY/MZ at END_I.
 
-```text
-node 1 = fixed at (0,0)
-node 2 = free at (L,0)
-one ELASTIC_FRAME_2D element 1->2
-vertical FY = -P at node 2
-requests:
-- node 2 displacement Y
-- node 1 reaction force Y
-- node 1 reaction moment Z
-- element 1 N END_I
-- element 1 VY END_I
-- element 1 MZ END_I
-```
-
-Use explicit values such as `L = 2.0 m`, `P = 1000.0 N`, `E = 2.0e11 N/m²`, `I = 8.0e-6 m⁴`, and compare within explicit tolerances:
+Assertions:
 
 ```python
 assert reaction_y == pytest.approx(P, rel=1e-9, abs=1e-7)
@@ -942,117 +599,85 @@ assert abs(element_mz_i) == pytest.approx(P * L, rel=1e-9, abs=1e-7)
 assert displacement_y < 0.0
 ```
 
-Skip only when `get_solver_adapter("opensees").status()["available"]` is false. Before Task 6 implementation, generated node channels should fail because the current worker supports element-only response-plan sampling.
+Skip only when OpenSees optional dependency is genuinely unavailable.
 
-- [ ] **Step 2: Add RED tests for trusted vs untrusted unit provenance**
+- [ ] **Step 2: Add trusted/untrusted unit RED tests**
 
-Generated manifest/context run must output:
+Generated bundle must emit `m`, `N`, `N*m` as appropriate. Arbitrary user Python + legacy response plan must still emit `unit is None`.
 
-```text
-DISPLACEMENT unit = m
-REACTION_FORCE unit = N
-REACTION_MOMENT unit = N*m
-GENERALIZED_FORCE N/VY unit = N
-GENERALIZED_FORCE MZ unit = N*m
+- [ ] **Step 3: Run RED**
+
+```bash
+python -m pytest tests/python/test_opensees_structural_response.py tests/python/test_generated_opensees_analysis.py -q
 ```
 
-An existing arbitrary OpenSees Python script with a user response plan must still emit `unit is None`; no ModelSpec-derived trusted unit may leak into that path.
+Expected: generated NODE response execution unsupported by current worker.
 
-- [ ] **Step 3: Stage a private verified response context during generated `run()`**
+- [ ] **Step 4: Stage verified context during generated run**
 
-In `OpenSeesBundleAdapter.run`, when `analysisManifestPath` is provided:
+Just before execution, rerun generated-bundle verification. Write `run_dir/response_context.verified.json` from verifier responseContext and pass `--response-context` to worker. Still stage normalized response plan for provenance.
 
-```text
-1. rerun generated-bundle verification just before execution; do not trust prior preflight result.
-2. stage the model bundle exactly as existing code does.
-3. write run_dir/response_context.verified.json from verifier["responseContext"].
-4. pass --response-context to worker instead of relying on response-plan semantic interpretation.
-5. still stage/copy the normalized response plan for run provenance and manifest hashes.
-```
+- [ ] **Step 5: Extend worker sampling**
 
-Include the response-context file only as private run implementation detail; it is not an Agent output contract.
-
-- [ ] **Step 4: Extend worker argument parsing and sampling by verified access kind**
-
-In `fem_core/solvers/opensees_worker.py`, add strict `_read_response_context(path)` and extend `run_python_model` with optional `response_context_path`.
-
-After a successful wrapped `ops.analyze(...)`:
+After successful analyze:
 
 ```python
 if any(channel["access"] == "NODE_REACTION" for channel in channels):
     ops.reactions()
-
-for channel in channels:
-    if channel["access"] == "NODE_DISP":
-        value = float(ops.nodeDisp(int(channel["targetId"]), int(channel["dof"])))
-    elif channel["access"] == "NODE_REACTION":
-        value = float(ops.nodeReaction(int(channel["targetId"]), int(channel["dof"])))
-    elif channel["access"] == "ELEMENT_LOCAL_FORCE":
-        vector = ops.eleResponse(int(channel["targetId"]), channel["response"])
-        # require exact vectorLength and read verified index
-    else:
-        raise FemCoreError("STRUCTURAL_RESPONSE_MAPPING_UNAVAILABLE", ...)
 ```
 
-All values and abscissa must be finite. Write the existing canonical `structural_response_series` fields using unit/referenceFrame from verified context. One static analyze call produces one sample.
+Per channel:
 
-For the old arbitrary response-plan path, retain runtime domain validation and mapping through the shared untrusted resolver; emitted units remain `None`.
+```text
+NODE_DISP -> ops.nodeDisp(targetId, dof)
+NODE_REACTION -> ops.nodeReaction(targetId, dof)
+ELEMENT_LOCAL_FORCE -> ops.eleResponse(targetId, response), exact vectorLength check, verified index
+```
 
-- [ ] **Step 5: Extend run manifest provenance only for generated analyses**
+Require finite abscissa/value. Emit existing `structural_response_series` with unit/referenceFrame from verified context. Legacy arbitrary response plan continues its element-only validation and emits `unit: null`.
 
-Add:
+- [ ] **Step 6: Add generatedAnalysis provenance to run manifest**
+
+Generated runs include:
 
 ```json
-"generatedAnalysis": {
-  "analysisRenderFingerprint": "...",
-  "modelSpecFingerprint": "...",
-  "analysisSpecFingerprint": "...",
-  "analysisManifestSha256": "..."
+{
+  "analysisRenderFingerprint": "<verified fingerprint>",
+  "modelSpecFingerprint": "<verified fingerprint>",
+  "analysisSpecFingerprint": "<verified fingerprint>",
+  "analysisManifestSha256": "<verified sha256>"
 }
 ```
 
-For arbitrary Python scripts, `generatedAnalysis` is absent or `null`; do not imply generated-spec provenance.
+Arbitrary Python runs do not claim this provenance.
 
-- [ ] **Step 6: Run real OpenSees mapping proof and worker regressions**
+- [ ] **Step 7: Run GREEN and commit**
 
 ```bash
 python -m pytest tests/python/test_opensees_structural_response.py tests/python/test_generated_opensees_analysis.py -q
 python -m ruff check fem_core/solvers/opensees_python.py fem_core/solvers/opensees_worker.py tests/python/test_opensees_structural_response.py tests/python/test_generated_opensees_analysis.py
-```
 
-Expected: PASS with the pinned OpenSeesPy runtime in CI; node mappings are considered proven only after this green run.
-
-- [ ] **Step 7: Commit worker/provenance support**
-
-```bash
 git add fem_core/solvers/opensees_python.py fem_core/solvers/opensees_worker.py tests/python/test_opensees_structural_response.py tests/python/test_generated_opensees_analysis.py
 git commit -m "feat: record verified generated-analysis responses"
 ```
 
 ---
 
-### Task 7: Full PR26 Golden Path, Determinism, Tamper, and Result Intelligence
+### Task 7: Full PR26 Golden Path + Tamper + Result Intelligence
 
 **Files:**
 - Create: `tests/python/test_pr26_golden_path.py`
 - Modify: `tests/python/test_generated_opensees_analysis.py`
-- Modify only if a proven compatibility defect exists: `fem_core/result_intelligence.py`
+- Modify only if a failing canonical-query test proves necessary: `fem_core/result_intelligence.py`
 
 **Interfaces:**
-- Consumes all PR26 public/internal capabilities plus existing `get_solver_adapter("opensees")`, `inspect_result`, and `query_result`.
-- Produces integration proof that one rendered/verified solve exposes all PR25 V1 response classes through canonical recorded results without alternate execution or truth paths.
+- Proves ModelSpec VALID → AnalysisSpec VALID → Analysis READY → RENDERED → solver preflight READY → worker COMPLETED → structural_response → Result Intelligence.
 
-- [ ] **Step 1: Write the end-to-end golden test before any Result Intelligence compatibility fix**
+- [ ] **Step 1: Write full golden-path test**
 
-`tests/python/test_pr26_golden_path.py` must execute:
+Call authoritative validators/readiness/renderer, then:
 
 ```python
-model_validation = validate_engineering_model_spec(model_spec)
-analysis_validation = validate_engineering_analysis_spec(analysis_spec)
-readiness = evaluate_engineering_analysis_readiness(model_spec, analysis_spec)
-rendered = render_opensees_linear_static_analysis(tmp_path, model_spec, analysis_spec)
-
-adapter = get_solver_adapter("opensees")
 preflight = adapter.preflight(
     tmp_path,
     model_path=rendered["artifacts"]["analysisPath"],
@@ -1063,113 +688,50 @@ preflight = adapter.preflight(
     },
 )
 assert preflight["status"] == "READY"
-
-run = adapter.run(
-    tmp_path,
-    model_path=rendered["artifacts"]["analysisPath"],
-    load_path=None,
-    solver_options={
-        "responsePlanPath": rendered["artifacts"]["responsePlanPath"],
-        "analysisManifestPath": rendered["artifacts"]["manifestPath"],
-    },
-)
-assert run["status"] == "COMPLETED"
 ```
 
-Then use `inspect_result(tmp_path, run["runId"])` / existing run reference semantics and assert the structural response artifact is VALID and queryable.
+Run with the same paths/options and assert `COMPLETED`.
 
-- [ ] **Step 2: Query all supported response classes from the same solve**
+- [ ] **Step 2: Query mixed response classes from the same solve**
 
-The same run must prove recorded availability for:
+The same run must expose requested NODE displacement, NODE reaction force, NODE reaction moment, and ELEMENT N/VY/MZ through canonical Result Intelligence. Do not modify Result Intelligence unless the test proves a valid `structural_response_series` quantity is rejected; if so, add one focused failing query test before the smallest compatibility fix.
 
-```text
-NODE DISPLACEMENT X/Y as requested
-NODE REACTION_FORCE X/Y as requested
-NODE REACTION_MOMENT Z
-ELEMENT GENERALIZED_FORCE N/VY/MZ at END_I/END_J as requested
-```
+- [ ] **Step 3: Add determinism assertions**
 
-Use the exact canonical Result Intelligence query form currently supported. If Result Intelligence already reads mixed `structural_response_series`, no production code change is allowed. If a test proves it rejects one PR25 V1 canonical quantity despite a valid artifact, make the smallest compatibility extension in `fem_core/result_intelligence.py` and add a focused regression in the same task.
+Semantic collection reordering must preserve modelSpecFingerprint, analysisSpecFingerprint, analysis source SHA, response plan SHA, readiness SHA, and analysisRenderFingerprint. Render IDs may differ.
 
-- [ ] **Step 3: Add end-to-end determinism proof**
+- [ ] **Step 4: Add real adapter tamper assertions**
 
-Create semantically identical reordered ModelSpec and AnalysisSpec copies and assert:
+Tamper analysis source, response plan, readiness artifact, manifest paths, manifest hashes/fingerprint, and embedded normalized specs separately. `adapter.preflight()` must fail before creating any new run directory.
 
-```text
-modelSpecFingerprint equal
-analysisSpecFingerprint equal
-analysis.py SHA equal
-response_plan SHA equal
-analysis_readiness SHA equal
-analysisRenderFingerprint equal
-```
-
-Random render IDs/directories may differ.
-
-- [ ] **Step 4: Add pre-worker tamper assertions at the real adapter boundary**
-
-Render once, then independently tamper with:
-
-```text
-analysis.py
-response_plan.json
-analysis_readiness.json
-manifest path fields
-manifest hashes/fingerprint
-embedded normalized ModelSpec/AnalysisSpec
-```
-
-Call `adapter.preflight(...)` and assert it fails closed before worker execution. Verify no new `.femagent/runs/run_*` directory appears for failed preflight cases.
-
-- [ ] **Step 5: Run the complete PR26 focused suite**
+- [ ] **Step 5: Run GREEN**
 
 ```bash
-python -m pytest \
-  tests/python/test_analysis_readiness.py \
-  tests/python/test_opensees_analysis_renderer.py \
-  tests/python/test_analysis_render_bridge.py \
-  tests/python/test_generated_opensees_analysis.py \
-  tests/python/test_opensees_response_plan.py \
-  tests/python/test_opensees_structural_response.py \
-  tests/python/test_pr26_golden_path.py -q
+python -m pytest tests/python/test_analysis_readiness.py tests/python/test_opensees_analysis_renderer.py tests/python/test_analysis_render_bridge.py tests/python/test_generated_opensees_analysis.py tests/python/test_opensees_response_plan.py tests/python/test_opensees_structural_response.py tests/python/test_pr26_golden_path.py -q
 ```
 
-Expected: PASS.
-
-- [ ] **Step 6: Commit integration proof**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/python/test_pr26_golden_path.py tests/python/test_generated_opensees_analysis.py fem_core/result_intelligence.py
+git add tests/python/test_pr26_golden_path.py tests/python/test_generated_opensees_analysis.py
 git commit -m "test: prove PR26 OpenSees analysis golden path"
 ```
 
-If `fem_core/result_intelligence.py` was not changed, omit it from `git add`; do not create a no-op edit merely to match this command.
+If Result Intelligence required a proven compatibility fix, stage its source and focused test in this same commit.
 
 ---
 
-### Task 8: Full Verification, Scope Audit, and Review-Ready Gate
+### Task 8: Full Verification + Scope Audit
 
 **Files:**
-- No new production scope by default.
-- Corrections are limited to PR26-touched files listed in the File Map and tests proving the correction.
+- No new production files by default.
+- Any correction must stay within the PR26 File Map and be driven by a failing test.
 
-**Interfaces:**
-- Produces evidence that the implementation matches the approved PR26 spec and is safe to mark review-ready.
-
-- [ ] **Step 1: Run focused PR26 Python tests from the latest HEAD**
+- [ ] **Step 1: Run focused PR26 suite from latest HEAD**
 
 ```bash
-python -m pytest \
-  tests/python/test_analysis_readiness.py \
-  tests/python/test_opensees_analysis_renderer.py \
-  tests/python/test_analysis_render_bridge.py \
-  tests/python/test_generated_opensees_analysis.py \
-  tests/python/test_opensees_response_plan.py \
-  tests/python/test_opensees_structural_response.py \
-  tests/python/test_pr26_golden_path.py -q
+python -m pytest tests/python/test_analysis_readiness.py tests/python/test_opensees_analysis_renderer.py tests/python/test_analysis_render_bridge.py tests/python/test_generated_opensees_analysis.py tests/python/test_opensees_response_plan.py tests/python/test_opensees_structural_response.py tests/python/test_pr26_golden_path.py -q
 ```
-
-Expected: PASS.
 
 - [ ] **Step 2: Run full repository verification**
 
@@ -1181,32 +743,33 @@ pnpm test:ts
 pnpm fem:health
 ```
 
-Expected: all PASS. CI must also execute its existing OpenSees availability smoke against the latest PR26 HEAD.
+CI must also pass its existing real OpenSees availability smoke on the latest PR26 HEAD.
 
-- [ ] **Step 3: Run the explicit PR26 scope audit**
+- [ ] **Step 3: Scope audit `main...HEAD`**
 
-Inspect `git diff main...HEAD` and verify all statements below are true:
+Verify all are true:
 
 ```text
-no ANSYS renderer/analysis behavior added
-no PR27 natural-language AnalysisSpec completion added
+no ANSYS renderer/analysis behavior
+no PR27 natural-language completion
 no new AnalysisSpec V1 fields
 no distributed/gravity/thermal/load-combination support
-no modal/transient/nonlinear/spectrum solver path
-no caller-selected solver algorithm/integrator/step/tolerance controls
-no unit conversion in readiness or renderer
-no duplicate ModelSpec→OpenSees model compiler
+no modal/transient/nonlinear/spectrum path
+no caller-selected solver controls
+no unit conversion
+no duplicate ModelSpec→OpenSees compiler
 no result extraction inside generated analysis.py
-no alternate solver subprocess/run path outside SolverAdapter
-no permission-gate broadening beyond existing fem_solver_run
-no trusted unit accepted from response_plan.json
+no alternate solver execution path
+no permission-gate broadening
+no trusted unit from response_plan.json
+legacy arbitrary response-plan path remains element-only
 no worker-side trusted engineering reinterpretation for generated analyses
-no permanent separate fem_analysis_readiness / fem_analysis_render_opensees Agent tools
+no separate public fem_analysis_readiness/fem_analysis_render_opensees tools
 ```
 
-Also confirm the temporary `fem_analysis_spec_validate` tool still exists and `fem_analysis_prepare_opensees` is the only new LLM-visible Analysis preparation tool.
+Confirm temporary `fem_analysis_spec_validate` remains and only one new LLM-visible Analysis preparation tool exists.
 
-- [ ] **Step 4: Check diff hygiene and exact branch scope**
+- [ ] **Step 4: Diff hygiene**
 
 ```bash
 git diff --check main...HEAD
@@ -1214,40 +777,36 @@ git diff --stat main...HEAD
 git status --short
 ```
 
-Expected: no whitespace errors, only intended PR26 files, clean worktree after commits.
+- [ ] **Step 5: Correct only verified defects**
 
-- [ ] **Step 5: Apply only evidence-driven corrections and rerun the relevant RED→GREEN cycle**
+For any defect: add or identify a focused failing test, confirm RED, make the smallest correction, confirm GREEN, then rerun Step 2.
 
-If verification exposes a defect, first add or identify a failing focused test, run it to confirm RED, make the smallest correction in the affected PR26 file, rerun focused tests, then rerun the full commands from Step 2. Do not add unrelated refactors during this gate.
+- [ ] **Step 6: Commit final correction only when needed**
 
-- [ ] **Step 6: Commit any final corrections explicitly**
+Use the exact matching message:
 
-Use one of these exact commit messages according to the defect class:
-
-```bash
-git commit -m "fix: preserve PR26 analysis readiness invariants"
-git commit -m "fix: preserve generated OpenSees analysis integrity"
-git commit -m "fix: preserve PR26 response provenance"
+```text
+fix: preserve PR26 analysis readiness invariants
+fix: preserve generated OpenSees analysis integrity
+fix: preserve PR26 response provenance
 ```
-
-Stage only files changed by the corresponding correction before committing.
 
 ## Completion Gate
 
-PR26 may be called implementation-complete only when:
+PR26 is implementation-complete only when:
 
-- Analysis Readiness deterministically returns `INVALID_SPEC | NOT_READY | READY` with all approved joint checks.
+- Analysis Readiness enforces the approved joint checks and statuses.
 - Every PR25 V1 result request has a real pinned-OpenSeesPy proven mapping.
-- Reaction requests on unrestrained DOFs are `NOT_READY`.
-- Model and Analysis force units must match exactly; no hidden conversion occurs.
-- PR23 and PR26 share one ModelSpec→OpenSees compiler and PR23 output remains regression-stable.
-- READY pairs render the exact four-file standalone generated-analysis bundle.
-- Generated `analysis.py` never extracts results and never executes a subprocess.
-- Generated bundle verification reconstructs engineering semantics from embedded normalized specs instead of trusting mutable manifest hashes alone.
-- Arbitrary OpenSees response plans retain untrusted `unit: null`; only verified PR26 generated analyses promote ModelSpec-derived trusted units.
-- Solver preflight/run reverify generated bundle identity and semantics; tampered bundles fail before worker execution.
-- The isolated worker records mixed NODE displacement/reaction and ELEMENT generalized-force channels into canonical `structural_response_series` from one solve.
-- Existing SolverAdapter and permission-gated `fem_solver_run` remain the only real execution route.
-- Only one new high-level Agent preparation tool is added: `fem_analysis_prepare_opensees` with CHECK/RENDER.
-- Focused PR26 tests, full Python suite, Ruff, TypeScript typecheck/tests, health smoke, and OpenSees CI smoke pass from the latest HEAD.
-- `main` remains unmodified by implementation work until the user explicitly authorizes merge.
+- Unrestrained reaction requests are NOT_READY.
+- Force units match exactly and no hidden conversion occurs.
+- PR23/PR26 share one model compiler with PR23 regression stability.
+- READY pairs render the exact four-file standalone bundle.
+- Generated source never extracts results or runs a subprocess.
+- Verification reconstructs semantics from embedded normalized specs instead of trusting mutable manifest hashes alone.
+- Arbitrary OpenSees plans keep `unit: null`; only verified generated analyses get trusted ModelSpec-derived units.
+- Generated preflight/run reverify semantic identity; tampering fails before worker execution.
+- Worker records mixed NODE and ELEMENT channels from one solve into canonical `structural_response_series`.
+- SolverAdapter and permission-gated `fem_solver_run` remain the only real execution route.
+- Only one new high-level Agent tool is added: `fem_analysis_prepare_opensees` CHECK/RENDER.
+- Focused tests, full Python suite, Ruff, TS typecheck/tests, health smoke, and OpenSees CI smoke all pass at latest HEAD.
+- `main` remains unmodified until the user explicitly authorizes merge.
