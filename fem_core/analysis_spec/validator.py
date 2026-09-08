@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from fem_core.analysis_spec.v1 import validate_engineering_analysis_spec_v1
 
