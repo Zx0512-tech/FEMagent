@@ -2,27 +2,25 @@
 
 ## 1. Purpose
 
-PR27 upgrades FEMagent's solver-neutral analysis language from a static-only V1 contract into a versioned multi-analysis specification that supports three structural analysis families:
+PR27 upgrades FEMagent's solver-neutral analysis language from the static-only V1 contract into a versioned multi-analysis specification supporting exactly three structural analysis families:
 
 - `LINEAR_STATIC`
 - `MODAL`
 - `TRANSIENT`
 
-The goal is to expand the engineering language without collapsing schema design, solver readiness, renderer implementation, execution, or result interpretation into one change.
+PR27 defines and validates analysis intent. It does **not** make the new V2 profiles executable. Readiness, renderer, worker/result extraction, and solver execution for V2 are follow-on work.
 
-PR27 therefore defines and validates the analysis intent. It does not by itself make all three profiles executable.
-
-The central distinction remains:
+The architecture remains:
 
 - `EngineeringModelSpec` = what the structural model is.
-- `EngineeringAnalysisSpec` = what analysis should be performed on that model.
-- AnalysisSpec validation = whether the analysis specification is intrinsically valid and normalized.
+- `EngineeringAnalysisSpec` = what analysis should be performed.
+- AnalysisSpec validation = whether the specification is intrinsically valid and deterministically normalized.
 - Analysis Readiness = whether a validated ModelSpec + AnalysisSpec pair is executable by a concrete solver profile.
-- Renderer = deterministic compilation into solver-specific artifacts.
+- Renderer = deterministic solver-specific compilation.
 - SolverAdapter / solver = execution and numerical truth.
-- Result Intelligence / Evidence = recorded result interpretation and provenance.
+- Result Intelligence / Evidence = interpretation and provenance of recorded solver results.
 
-`VALID` must never be treated as equivalent to `READY`, `RENDERED`, `SOLVER_READY`, `COMPLETED`, or `VERIFIED`.
+`VALID` is never equivalent to `READY`, `RENDERED`, `SOLVER_READY`, `COMPLETED`, or `VERIFIED`.
 
 ## 2. Architectural principles
 
@@ -33,24 +31,24 @@ PR27 follows the FEMagent constitution:
 3. Solvers decide numerical results.
 4. Artifacts preserve what happened.
 
-Additional PR27 principles:
+Additional principles:
 
-- Use one shared AnalysisSpec envelope with a discriminated, analysis-specific `definition`.
-- Avoid a giant universal schema containing many unrelated optional fields.
-- Preserve V1 behavior and fingerprints exactly.
-- V2 introduces its own semantic fingerprint identity.
-- AnalysisSpec expresses solver-neutral engineering intent, not OpenSees or ANSYS commands.
+- Use one shared V2 envelope with an analysis-type-discriminated `definition`.
+- Do not create a giant universal schema with many unrelated optional fields.
+- Preserve all previously proven V1 normalized semantics and fingerprints.
+- V2 has an independent semantic fingerprint identity.
+- AnalysisSpec expresses solver-neutral engineering intent, never OpenSees/ANSYS commands.
 - Result requests remain whitelist-based.
 - No silent unit inference, load summation, target repair, default damping, or solver configuration guessing.
-- External artifact content identity is represented by SHA-256; filesystem path is provenance/locator metadata, not engineering identity.
-- PR27 expands the specification layer. Modal and transient readiness/rendering are separate later work.
+- External artifact content identity is represented by SHA-256; filesystem path is locator/provenance metadata, not engineering identity.
+- PR27 expands only the specification/validation layer for V2. All V2 profiles stop at `VALID` in this PR.
 - Internal capability growth does not imply permanent LLM-visible tool growth.
 
 ## 3. Scope
 
 ### 3.1 In scope
 
-PR27 supports `EngineeringAnalysisSpec` schema versions `1.0` and `2.0`.
+PR27 supports AnalysisSpec schema versions `1.0` and `2.0` through one public validation entry point.
 
 V2 supports exactly:
 
@@ -58,9 +56,7 @@ V2 supports exactly:
 2. `MODAL`
 3. `TRANSIENT`
 
-`TRANSIENT` in PR27 means:
-
-> linear structural direct-integration time-history analysis.
+`TRANSIENT` means linear structural direct-integration time-history analysis.
 
 Transient excitation types:
 
@@ -72,39 +68,33 @@ Transient damping types:
 - `NONE`
 - `RAYLEIGH`
 
-PR27 also adds deterministic V1-to-V2 migration for valid V1 linear-static AnalysisSpecs.
+PR27 also adds deterministic migration from a valid V1 linear-static AnalysisSpec to V2 linear-static AnalysisSpec.
 
-### 3.2 Explicitly out of scope
+### 3.2 Out of scope
 
 PR27 does not add:
 
-- nonlinear static analysis;
-- nonlinear transient analysis;
-- pushover;
-- response spectrum;
-- buckling;
-- harmonic analysis;
-- random vibration;
-- moving loads;
-- thermal or multiphysics analysis;
-- distributed or gravity loads to the new solver-neutral static profile;
-- multiple static load cases or load combinations;
-- modal participation factors, effective modal mass, mass participation ratios, or modal strain energy;
+- V2 Analysis Readiness or V2 renderer admission, including V2 static;
+- modal or transient OpenSees renderers/workers/results;
+- ANSYS V2 renderers;
+- nonlinear static/transient analysis;
+- pushover, response spectrum, buckling, harmonic, random vibration, moving load, thermal, or multiphysics analysis;
+- distributed/gravity loads in the new static profile;
+- multiple static load cases or combinations;
+- modal participation/effective-mass metrics;
 - modal solver selection or normalization controls;
-- modal or transient OpenSees readiness/renderers;
-- ANSYS renderers for V2;
 - natural-language Analysis Requirement Completion;
 - Controlled Repair;
 - generic Semantic Role resolution;
-- automatic engineering target inference;
+- automatic target inference;
 - automatic unit conversion;
 - implicit 5% damping or any other damping default.
 
-## 4. Versioning and compatibility strategy
+## 4. Versioning and compatibility
 
-### 4.1 V1 remains authoritative for existing PR25/PR26 artifacts
+### 4.1 V1 remains authoritative for PR25/PR26 execution
 
-Existing schema:
+Existing V1:
 
 ```json
 {
@@ -118,13 +108,21 @@ Existing schema:
 }
 ```
 
-V1 validation, normalization, canonical serialization, and `analysisSpecFingerprint` must remain byte-for-byte behavior compatible with PR25.
+PR27 must preserve:
 
-PR27 must not silently rewrite a V1 spec to V2 during validation, readiness, rendering, or provenance verification.
+- V1 validation semantics;
+- V1 normalized AnalysisSpec representation;
+- V1 canonicalization;
+- V1 `analysisSpecFingerprint`;
+- the existing PR26 V1 readiness/render/generated-analysis verification path.
+
+PR27 never silently rewrites V1 to V2.
+
+The existing validation report protocol stays `FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1`; PR27 does not require a new report field merely to expose the input schema version. Consumers can read `normalizedSpec.schemaVersion` when validation succeeds, while invalid-version issues remain explicit in `issues`.
 
 ### 4.2 V2 has independent identity
 
-V2 uses:
+V2 envelope:
 
 ```json
 {
@@ -138,13 +136,11 @@ V2 uses:
 }
 ```
 
-A V1 linear-static spec and a semantically equivalent V2 linear-static spec have different AnalysisSpec fingerprints because the schema identity and canonical representation differ.
-
-This is intentional.
+Semantically equivalent V1 and V2 static specs intentionally have different fingerprints because schema identity and canonical representation differ.
 
 ## 5. V2 shared envelope
 
-V2 top-level exact keys are:
+Exact top-level keys:
 
 ```text
 schemaVersion
@@ -156,8 +152,6 @@ definition
 resultRequests
 ```
 
-No additional top-level fields are accepted.
-
 Required identities:
 
 ```text
@@ -167,39 +161,23 @@ analysisType in {LINEAR_STATIC, MODAL, TRANSIENT}
 modelSpecFingerprint = lowercase 64-character SHA-256 hex
 ```
 
-`analysisType` is the discriminator that determines the exact legal shapes of `units`, `definition`, and `resultRequests`.
+`analysisType` discriminates the exact legal shapes of `units`, `definition`, and `resultRequests`.
 
-A spec that combines one analysis type with another type's definition is intrinsically invalid.
+A mismatched profile is invalid, for example `analysisType="MODAL"` with a transient time definition.
 
-Example invalid combination:
-
-```json
-{
-  "analysisType": "MODAL",
-  "definition": {
-    "time": {"timeStep": 0.01, "duration": 30.0}
-  }
-}
-```
-
-## 6. LINEAR_STATIC V2 profile
+## 6. LINEAR_STATIC V2
 
 ### 6.1 Units
 
 Exact shape:
 
 ```json
-{
-  "force": "N"
-}
+{"force": "N"}
 ```
 
-Allowed force units:
+Allowed force units: `N`, `kN`.
 
-- `N`
-- `kN`
-
-PR27 performs no unit conversion.
+No unit conversion occurs during intrinsic validation.
 
 ### 6.2 Definition
 
@@ -211,29 +189,26 @@ Exact shape:
     {
       "loadCaseId": "LC1",
       "nodalLoads": [
-        {
-          "nodeId": 2,
-          "FX": 0,
-          "FY": -10000,
-          "MZ": 0
-        }
+        {"nodeId": 2, "FX": 0, "FY": -10000, "MZ": 0}
       ]
     }
   ]
 }
 ```
 
-V2 static V1-profile rules remain:
+Rules:
 
 - exactly one load case;
 - at least one nodal load;
-- `loadCaseId` must satisfy the existing identifier token contract;
-- `nodeId` must be a positive integer;
-- `FX`, `FY`, and `MZ` must all be explicitly present finite numbers;
-- each nodal-load record must contain at least one non-zero component;
-- duplicate `nodeId` records in one load case are invalid rather than automatically summed.
+- `loadCaseId` uses the existing identifier-token contract;
+- `nodeId` is a positive integer;
+- `FX`, `FY`, `MZ` are all explicitly present finite numbers;
+- each nodal-load record has at least one non-zero component;
+- duplicate node targets in one load case are invalid rather than summed.
 
-### 6.3 Result request whitelist
+### 6.3 Result requests
+
+Whitelist:
 
 NODE:
 
@@ -259,7 +234,7 @@ Example:
 }
 ```
 
-## 7. MODAL V2 profile
+## 7. MODAL V2
 
 ### 7.1 Units
 
@@ -269,28 +244,26 @@ Exact shape:
 {}
 ```
 
-Modal AnalysisSpec introduces no independent model-unit declaration. Modal response units are derived later from validated ModelSpec units and solver/result semantics.
+Modal AnalysisSpec introduces no independent unit declaration.
 
 ### 7.2 Definition
 
 Exact shape:
 
 ```json
-{
-  "modeCount": 10
-}
+{"modeCount": 10}
 ```
 
 Rules:
 
-- `modeCount` is an integer;
+- integer;
 - `modeCount > 0`.
 
-PR27 does not expose eigen solver selection, shifts, normalization controls, or frequency ranges.
+No eigen solver, shift, normalization, or frequency-range controls are exposed in PR27.
 
-### 7.3 Result request whitelist
+### 7.3 Result requests
 
-Supported modal quantities:
+Supported quantities:
 
 - `EIGENVALUE`
 - `NATURAL_FREQUENCY`
@@ -307,12 +280,12 @@ Scalar modal request:
 }
 ```
 
-`EIGENVALUE`, `NATURAL_FREQUENCY`, and `PERIOD`:
+`EIGENVALUE`, `NATURAL_FREQUENCY`, `PERIOD`:
 
-- require `requestId`, `quantity`, and `mode`;
-- do not accept `target`, `component`, `location`, or `loadCaseId`.
+- require `requestId`, `quantity`, `mode`;
+- reject `target`, `component`, `location`, `loadCaseId`.
 
-Mode-shape request:
+Mode shape:
 
 ```json
 {
@@ -327,61 +300,50 @@ Mode-shape request:
 `MODE_SHAPE`:
 
 - requires NODE target;
-- target ID must be positive;
-- component must be `X`, `Y`, or `RZ`;
+- target ID positive integer;
+- component `X`, `Y`, or `RZ`;
 - no `loadCaseId`.
 
-For every modal request:
+Every modal request must satisfy:
 
 ```text
 1 <= mode <= definition.modeCount
 ```
 
-This is intrinsic validation because it depends only on the AnalysisSpec itself.
+This is intrinsic validation.
 
-### 7.4 Modal unit semantics
-
-Result-unit semantics are defined for later readiness/result mapping:
+### 7.4 Modal result semantics for later layers
 
 - `EIGENVALUE` = inverse time squared;
 - `NATURAL_FREQUENCY` = Hz canonical presentation;
-- `PERIOD` = ModelSpec time dimension;
-- `MODE_SHAPE` = normalization/convention dependent and must not be presented as a physical displacement without explicit normalization semantics.
+- `PERIOD` = time;
+- `MODE_SHAPE` = normalization/convention dependent and must not be represented as a physical displacement without proven normalization semantics.
 
-PR27 validates the request language only; it does not claim a solver mapping.
+PR27 defines request semantics only; it does not claim solver mapping or result units are executable.
 
-## 8. TRANSIENT V2 profile
+## 8. TRANSIENT V2
 
 ### 8.1 Meaning
 
-`TRANSIENT` means linear structural direct-integration time-history analysis.
-
-It does not imply nonlinear dynamics.
+`TRANSIENT` means linear structural direct-integration time-history analysis, not nonlinear dynamics.
 
 ### 8.2 Units
 
-The V2 transient `units` object is exact and profile-dependent.
-
-For `NODAL_TIME_HISTORY` with quantity `FORCE`:
+For `NODAL_TIME_HISTORY` quantity `FORCE`, exact `units` shape is:
 
 ```json
-{
-  "force": "N"
-}
+{"force": "N"}
 ```
 
-Allowed force units:
+Allowed force units: `N`, `kN`.
 
-- `N`
-- `kN`
-
-For `UNIFORM_BASE_EXCITATION`:
+For `UNIFORM_BASE_EXCITATION`, exact shape is:
 
 ```json
 {}
 ```
 
-The standardized load artifact owns excitation quantity/unit identity. Time units are inherited from the bound ModelSpec rather than duplicated in AnalysisSpec.
+The standardized load artifact owns acceleration quantity/unit identity. Analysis time values inherit the bound ModelSpec time unit; PR27 does not duplicate time-unit declarations.
 
 ### 8.3 Time definition
 
@@ -396,20 +358,18 @@ Exact shape:
 
 Rules:
 
-- both values must be finite numbers;
+- finite numbers;
 - `timeStep > 0`;
 - `duration > 0`.
 
-PR27 does not inspect the load artifact to prove that its sampling interval or final time matches this definition. Those are readiness responsibilities.
+PR27 does not read the artifact to compare sampling interval or final time. Those are later readiness checks.
 
 ### 8.4 Damping union
 
 No damping:
 
 ```json
-{
-  "type": "NONE"
-}
+{"type": "NONE"}
 ```
 
 Rayleigh damping:
@@ -424,17 +384,17 @@ Rayleigh damping:
 
 Rules:
 
-- `alphaM` and `betaK` must be finite;
-- both must be non-negative;
-- zero/zero is valid and is not automatically rewritten to `NONE`.
+- `alphaM`, `betaK` finite;
+- both non-negative;
+- zero/zero remains a valid explicit Rayleigh definition and is not rewritten to `NONE`.
 
-PR27 does not accept a bare `dampingRatio` because converting a modal damping ratio into Rayleigh coefficients requires additional engineering choices.
+Bare damping ratio is out of scope because converting a damping ratio to Rayleigh coefficients requires additional engineering choices.
 
 No damping default exists.
 
 ### 8.5 Load artifact reference
 
-Exact transport shape:
+Transport/provenance shape:
 
 ```json
 {
@@ -445,14 +405,11 @@ Exact transport shape:
 
 Rules:
 
-- `path` must be a non-empty workspace-relative locator string;
-- `sha256` must be lowercase 64-character SHA-256 hex.
+- `path` is a non-empty workspace-relative locator string;
+- `sha256` is lowercase 64-character SHA-256 hex;
+- intrinsic validation does not read file bytes.
 
-PR27 validation does not read the path or verify file bytes.
-
-`sha256` participates in AnalysisSpec semantic fingerprinting.
-
-`path` does not participate in semantic fingerprinting.
+`sha256` participates in semantic fingerprinting; `path` does not.
 
 ### 8.6 Excitation union
 
@@ -477,7 +434,7 @@ Rules:
 - component `X` or `Y`;
 - quantity exactly `FORCE`.
 
-PR27 does not support nodal moment time history.
+Nodal moment time history is out of scope.
 
 #### UNIFORM_BASE_EXCITATION
 
@@ -500,17 +457,14 @@ Rules:
 
 Rotational ground motion is out of scope.
 
-### 8.7 Transient definition exact shape
+### 8.7 Definition
+
+Exact shape:
 
 ```json
 {
-  "time": {
-    "timeStep": 0.01,
-    "duration": 30.0
-  },
-  "damping": {
-    "type": "NONE"
-  },
+  "time": {"timeStep": 0.01, "duration": 30.0},
+  "damping": {"type": "NONE"},
   "excitation": {
     "type": "UNIFORM_BASE_EXCITATION",
     "component": "X",
@@ -523,11 +477,11 @@ Rotational ground motion is out of scope.
 }
 ```
 
-No extra integration-algorithm, solver-tolerance, or recorder-control fields are part of PR27.
+No integration algorithm, solver tolerance, or recorder controls are exposed in PR27.
 
-## 9. TRANSIENT result request whitelist
+## 9. TRANSIENT result requests
 
-Common transient structural responses:
+Common whitelist:
 
 NODE:
 
@@ -540,7 +494,7 @@ ELEMENT:
 
 - `GENERALIZED_FORCE` N/VY/MZ at `END_I` or `END_J`
 
-Acceleration semantics depend on excitation type.
+Transient requests do not contain `loadCaseId`; one V2 transient AnalysisSpec contains exactly one controlled excitation definition.
 
 ### 9.1 NODAL_TIME_HISTORY acceleration
 
@@ -555,44 +509,43 @@ The request must explicitly choose:
 - `RELATIVE_ACCELERATION` X/Y
 - `ABSOLUTE_ACCELERATION` X/Y
 
-PR27 only validates this solver-neutral distinction. A later readiness profile may reject a quantity if no proven solver mapping exists.
-
-Transient requests do not carry `loadCaseId` in V2 because one AnalysisSpec contains exactly one controlled excitation definition.
+PR27 validates only the solver-neutral distinction. A later readiness profile can reject either quantity if a concrete solver lacks a proven mapping.
 
 ## 10. Intrinsic validation versus readiness
 
-PR27 validation checks only facts contained in the AnalysisSpec itself.
+PR27 validation checks only information contained in the AnalysisSpec.
 
-Examples of PR27 validation responsibilities:
+Intrinsic validation includes:
 
 - exact keys;
-- discriminator correctness;
+- schema version and discriminator;
 - supported analysis type;
-- identifiers;
+- identifier and target-ID syntax;
 - finite numeric values;
 - static duplicate load targets;
-- modal mode-range validity;
-- transient damping shape;
-- transient excitation shape;
+- modal mode-range checks;
+- transient damping/excitation shapes;
 - SHA syntax;
-- transient acceleration request semantics;
-- deterministic normalization and fingerprinting.
+- acceleration-request semantics;
+- deterministic normalization/fingerprinting.
 
-The following belong to later Analysis Readiness and must not be guessed or checked by intrinsic validation through hidden model/artifact reads:
+Readiness later owns cross-model, cross-artifact, and solver-profile truth, including:
 
-- whether a node/element target exists in the ModelSpec;
-- whether modal mass is defined and sufficient;
-- whether a requested reaction DOF is restrained;
-- whether a transient excitation target exists;
-- whether load artifact bytes match the declared SHA;
-- whether artifact quantity/unit matches excitation declaration;
-- whether transient artifact time axis matches `timeStep` / `duration`;
-- whether a solver can map absolute/relative acceleration correctly;
-- whether a concrete solver supports the requested profile.
+- target node/element existence;
+- modal mass sufficiency;
+- reaction restraint semantics;
+- transient target existence;
+- artifact bytes versus declared SHA;
+- artifact quantity/unit compatibility;
+- artifact time axis versus `timeStep`/`duration`;
+- solver mapping for absolute/relative acceleration;
+- concrete solver support.
+
+Intrinsic validation must not perform hidden model/artifact reads to answer these questions.
 
 ## 11. Normalization
 
-All valid specs follow:
+All valid V2 specs follow:
 
 ```text
 validate
@@ -604,9 +557,7 @@ fingerprint projection
 SHA-256
 ```
 
-### 11.1 Common normalization
-
-Canonical normalized V2 top-level order is conceptually:
+Common normalized top-level fields:
 
 ```text
 schemaVersion
@@ -618,97 +569,79 @@ definition
 resultRequests
 ```
 
-JSON object source ordering does not affect identity.
+Object source ordering does not affect identity.
 
 `resultRequests` are sorted by `requestId`.
 
-Duplicate semantic requests with different request IDs remain distinct and valid. PR27 does not deduplicate requested evidence intent.
+Duplicate semantic requests with distinct request IDs remain distinct and valid; PR27 does not deduplicate evidence intent.
 
-### 11.2 Static normalization
+Static normalization:
 
-- load cases sorted by `loadCaseId`;
-- nodal loads sorted by `nodeId`;
-- result requests sorted by `requestId`.
+- load cases by `loadCaseId`;
+- nodal loads by `nodeId`;
+- requests by `requestId`.
 
-### 11.3 Modal normalization
+Modal normalization:
 
 - `modeCount` preserved;
-- result requests sorted by `requestId`.
+- requests by `requestId`.
 
-### 11.4 Transient normalization
+Transient normalization:
 
-- time object canonicalized;
-- damping object canonicalized;
-- excitation object canonicalized;
-- result requests sorted by `requestId`.
+- time canonicalized;
+- damping canonicalized;
+- excitation canonicalized;
+- requests by `requestId`;
+- normalized spec retains artifact `path` for transport/provenance.
 
-The normalized spec retains load artifact `path` for transport/provenance.
+## 12. Fingerprint projection
 
-## 12. Fingerprint projection and identity
-
-V2 `analysisSpecFingerprint` is:
+V2 fingerprint:
 
 ```text
 SHA256(canonical JSON fingerprint payload)
 ```
 
-Canonical JSON uses:
+Canonical JSON:
 
 - UTF-8;
 - sorted object keys;
 - compact separators;
 - `allow_nan = false`.
 
-For static and modal, the fingerprint payload is the normalized spec.
+For static and modal, fingerprint payload equals normalized spec.
 
-For transient, the fingerprint payload is derived from the normalized spec but removes `loadArtifact.path` and retains `loadArtifact.sha256`.
+For transient, fingerprint payload is derived from normalized spec but removes `loadArtifact.path` and retains `loadArtifact.sha256`.
 
-Therefore two transient specs that reference the same artifact bytes under different workspace paths have the same engineering AnalysisSpec identity.
+Therefore two otherwise identical transient specs referencing identical artifact bytes at different paths have the same AnalysisSpec engineering identity.
 
-Filesystem location remains provenance, not engineering truth.
+V1 fingerprint behavior remains unchanged.
 
-V1 fingerprint behavior remains unchanged and separate.
+## 13. Validation report
 
-## 13. Validation report contract
+Public API remains:
 
-The existing validation report protocol remains:
-
-```text
-FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1
+```python
+validate_engineering_analysis_spec(spec)
 ```
 
-PR27 adds explicit input schema-version identity:
+Existing report protocol remains:
 
 ```json
 {
   "schema": "FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1",
-  "analysisSpecSchemaVersion": "2.0",
-  "status": "VALID",
+  "status": "VALID | INVALID",
   "issues": [],
   "normalizedSpec": {},
   "analysisSpecFingerprint": "..."
 }
 ```
 
-For a V1 input:
+PR27 does not require a report-protocol version change or an additional mandatory report field. A successful caller can inspect `normalizedSpec.schemaVersion`.
 
-```text
-analysisSpecSchemaVersion = "1.0"
-```
+## 14. Validator architecture
 
-The report protocol version is not the same thing as the AnalysisSpec schema version.
-
-## 14. Validator module architecture
-
-The public Python API remains:
-
-```python
-validate_engineering_analysis_spec(spec)
-```
-
-PR27 refactors implementation boundaries into version/profile modules rather than growing the existing static validator indefinitely.
-
-Target structure:
+Target responsibility split:
 
 ```text
 fem_core/analysis_spec/
@@ -728,20 +661,28 @@ fem_core/analysis_spec/
 
 Responsibilities:
 
-- `validator.py`: schema-version router only.
-- `v1.py`: preserved PR25 V1 behavior.
-- `v2/validator.py`: V2 envelope/discriminator router.
-- `v2/static.py`: V2 static intrinsic rules.
-- `v2/modal.py`: V2 modal intrinsic rules.
-- `v2/transient.py`: V2 transient intrinsic rules.
-- `v2/normalization.py`: canonical V2 normalization/fingerprint projection.
-- `v2/migration.py`: deterministic V1 static to V2 static migration.
+- `validator.py`: schema-version router;
+- `v1.py`: preserved PR25 V1 validation/normalization/fingerprint behavior;
+- `v2/validator.py`: envelope/discriminator routing;
+- profile modules: intrinsic rules only;
+- `normalization.py`: V2 normalization and fingerprint projection;
+- `migration.py`: pure V1 static to V2 static migration.
 
-If implementation discovers a cleaner equivalent file split, responsibilities must remain isolated even if exact filenames differ.
+Equivalent file naming is acceptable if responsibilities stay isolated and the public API remains stable.
+
+Router semantics:
+
+```python
+if schemaVersion == "1.0":
+    return validate_v1(spec)
+if schemaVersion == "2.0":
+    return validate_v2(spec)
+return INVALID
+```
 
 ## 15. V1 to V2 migration
 
-Public deterministic Python API:
+Public deterministic API:
 
 ```python
 migrate_engineering_analysis_spec_v1_to_v2(spec)
@@ -751,18 +692,18 @@ Only a valid V1 `LINEAR_STATIC` spec can migrate.
 
 Migration:
 
-1. validates source V1;
+1. validates V1 source;
 2. preserves `modelSpecFingerprint`;
 3. preserves force units;
-4. moves top-level `loadCases` into `definition.loadCases`;
+4. moves top-level `loadCases` to `definition.loadCases`;
 5. preserves result requests semantically;
-6. changes `schemaVersion` to `2.0`;
-7. validates target V2;
-8. returns both source and target fingerprints.
+6. sets `schemaVersion="2.0"`;
+7. validates V2 candidate;
+8. returns source and target fingerprints.
 
-Migration never reads a model, reads a load artifact, writes files, renders, repairs, or executes a solver.
+It never reads a model/artifact, writes files, renders, repairs, or executes a solver.
 
-Report shape:
+Report:
 
 ```json
 {
@@ -787,7 +728,7 @@ Failure statuses:
 
 ## 16. Bridge API
 
-Keep the existing validation command:
+Keep:
 
 ```text
 analysisSpec.validate
@@ -795,46 +736,40 @@ analysisSpec.validate
 
 It accepts V1 or V2 and routes internally.
 
-Add one deterministic migration command:
+Add:
 
 ```text
 analysisSpec.migrateV1ToV2
 ```
 
-Do not add profile-specific bridge commands such as:
-
-- `analysisSpec.validateV2`
-- `analysisSpec.validateModal`
-- `analysisSpec.validateTransient`
+Do not add profile-specific validation commands.
 
 ## 17. TypeScript contract
 
-Current public type must become a versioned discriminated union rather than widening the existing V1 interface unsafely.
-
-Required structure:
+Do not widen the existing V1 interface in place. Use a versioned discriminated union:
 
 ```ts
 export interface FemEngineeringAnalysisSpecV1Input {
   schemaVersion: "1.0";
-  // existing PR25 fields unchanged
+  // existing fields unchanged
 }
 
 export interface FemEngineeringLinearStaticAnalysisSpecV2Input {
   schemaVersion: "2.0";
   analysisType: "LINEAR_STATIC";
-  // V2 static fields
+  // V2 static exact fields
 }
 
 export interface FemEngineeringModalAnalysisSpecV2Input {
   schemaVersion: "2.0";
   analysisType: "MODAL";
-  // V2 modal fields
+  // V2 modal exact fields
 }
 
 export interface FemEngineeringTransientAnalysisSpecV2Input {
   schemaVersion: "2.0";
   analysisType: "TRANSIENT";
-  // V2 transient fields
+  // V2 transient exact fields
 }
 
 export type FemEngineeringAnalysisSpecV2Input =
@@ -847,74 +782,48 @@ export type FemEngineeringAnalysisSpecInput =
   | FemEngineeringAnalysisSpecV2Input;
 ```
 
-Validation response type gains:
-
-```ts
-analysisSpecSchemaVersion: "1.0" | "2.0";
-```
-
-Existing PR26 readiness/render result types remain explicitly linear-static until later work.
+Existing PR26 readiness/render result types remain explicitly V1 linear-static in PR27.
 
 ## 18. Agent tool surface
 
-Keep one LLM-visible fine-grained validation tool:
+Keep one validation tool:
 
 ```text
 fem_analysis_spec_validate
 ```
 
-Its schema becomes a union of:
+Its input schema becomes a union of:
 
 - V1 `LINEAR_STATIC`;
 - V2 `LINEAR_STATIC`;
 - V2 `MODAL`;
 - V2 `TRANSIENT`.
 
-The tool guidance must state:
+Guidance must explicitly state:
 
-> `VALID` V2 MODAL or TRANSIENT means only that the solver-neutral AnalysisSpec is intrinsically valid. PR27 does not prove OpenSees or ANSYS readiness/render support for those profiles.
+> `VALID` V2 Static, Modal, or Transient proves only intrinsic solver-neutral validity. PR27 does not make any V2 spec READY/RENDERED for OpenSees or ANSYS.
 
-The migration capability may be exposed through transport/library APIs but should not automatically become a permanent high-level LLM-visible tool unless an actual Agent workflow needs it.
+Migration remains an internal/bridge/library capability unless a later Agent workflow demonstrates a need for a permanent LLM-visible migration tool.
 
 ## 19. PR26 compatibility
 
-### 19.1 Existing V1 path
+Existing V1 PR26 readiness, renderer, generated-analysis verifier, worker, result path, fingerprints, and golden path remain unchanged.
 
-Existing V1 PR26 readiness/render behavior must remain unchanged.
+PR27 does **not** route V2 static into PR26 readiness/render.
 
-All existing V1 golden-path fingerprints and generated-analysis verification semantics remain authoritative.
+If a V2 spec is submitted to the existing V1 preparation path, the path must fail closed with a stable unsupported-profile/version outcome rather than reinterpret the spec as V1.
 
-### 19.2 V2 LINEAR_STATIC compatibility
-
-PR27 may admit V2 static into the existing PR26 static execution path through a deterministic internal projection.
-
-Conceptually:
+All V2 profiles therefore stop at:
 
 ```text
-V2 LINEAR_STATIC
-      ↓
-V2 validation / V2 fingerprint
-      ↓
-internal static execution projection
-      ↓
-existing PR26 static readiness/compiler logic
+VALID
 ```
 
-The projection is an implementation reuse mechanism only.
-
-It must not relabel the V2 spec or fingerprint as V1.
-
-If this compatibility path cannot preserve the existing PR26 generated-analysis verification invariants cleanly, PR27 must leave V2 static at VALID and defer V2 readiness/render admission rather than weaken provenance guarantees.
-
-### 19.3 MODAL and TRANSIENT
-
-PR27 must not report them READY through the current PR26 OpenSees profile.
-
-They remain valid solver-neutral specifications awaiting later profile-specific readiness/renderers.
+PR28 will introduce V2 readiness/render admission and may reuse existing PR26 static compiler logic through a deterministic internal projection while preserving V2 identity.
 
 ## 20. Issue-code families
 
-Shared intrinsic validation codes reuse/extend the existing family:
+Shared:
 
 - `ANALYSIS_SPEC_INVALID_SCHEMA`
 - `ANALYSIS_SPEC_UNKNOWN_FIELD`
@@ -947,102 +856,101 @@ Transient:
 - `ANALYSIS_SPEC_INVALID_LOAD_ARTIFACT`
 - `ANALYSIS_SPEC_UNSUPPORTED_TRANSIENT_RESPONSE`
 
-Cross-model, cross-artifact, and solver-mapping failures must use readiness/profile-specific codes later, not intrinsic AnalysisSpec codes.
+Cross-model, cross-artifact, and solver-mapping failures belong to later readiness/profile-specific code families.
 
 ## 21. Testing strategy
 
 ### 21.1 V1 regression
 
-Must prove:
+Prove:
 
-- existing V1 valid fixtures remain valid;
-- existing normalized V1 output is unchanged;
-- existing V1 fingerprints are unchanged;
+- V1 valid fixtures remain valid;
+- normalized V1 output unchanged;
+- V1 fingerprints unchanged;
 - PR26 V1 golden path remains green.
 
 ### 21.2 V2 static
 
 Test:
 
-- valid static spec;
-- exact-key rejection;
+- valid exact schema;
+- unknown-field rejection;
 - one-load-case rule;
 - duplicate nodal target rejection;
 - zero-load rejection;
-- deterministic ordering;
-- same semantics with reordered JSON produce same V2 fingerprint;
-- V1 to V2 migration is deterministic;
-- source fingerprint and target fingerprint are distinct.
+- deterministic normalization;
+- reordered equivalent input gives same V2 fingerprint;
+- V1-to-V2 migration deterministic;
+- V1/V2 fingerprints distinct;
+- V2 static is rejected by existing V1 readiness/render admission.
 
 ### 21.3 Modal
 
 Test:
 
 - positive `modeCount` valid;
-- `modeCount <= 0` invalid;
-- mode 0 invalid;
-- request mode above `modeCount` invalid;
-- scalar modal requests reject targets/components;
+- non-positive `modeCount` invalid;
+- mode zero invalid;
+- mode above `modeCount` invalid;
+- scalar modal request rejects target/component;
 - mode shape requires NODE target;
 - mode shape accepts X/Y/RZ only;
-- reordered requests retain deterministic fingerprint.
+- deterministic request ordering/fingerprint.
 
 ### 21.4 Transient
 
 Test:
 
-- positive finite `timeStep` and `duration`;
-- non-positive or non-finite time values invalid;
-- `NONE` damping exact shape;
-- Rayleigh non-negative finite coefficients;
-- malformed SHA invalid;
-- unsupported excitation invalid;
-- nodal force excitation unit contract;
-- uniform base excitation unit contract;
-- bare base-excitation `ACCELERATION` request invalid;
-- relative/absolute acceleration requests valid intrinsically;
-- different artifact paths with identical SHA produce identical AnalysisSpec fingerprint;
-- different artifact SHA produces different fingerprint.
+- positive finite `timeStep`/`duration`;
+- invalid time values rejected;
+- exact `NONE` damping;
+- non-negative finite Rayleigh coefficients;
+- malformed SHA rejected;
+- excitation union discriminator enforced;
+- nodal force excitation units contract;
+- uniform base excitation units contract;
+- bare base-excitation `ACCELERATION` result rejected;
+- relative/absolute acceleration valid intrinsically;
+- same SHA + different artifact path => same fingerprint;
+- different SHA => different fingerprint.
 
 ### 21.5 Discriminator safety
 
-Each analysis type must reject another profile's definition and result-request-only fields where forbidden.
-
 Examples:
 
-- `MODAL` + transient time definition -> INVALID;
-- `TRANSIENT` + static loadCases definition -> INVALID;
-- `LINEAR_STATIC` + modal result `PERIOD` -> INVALID.
+- MODAL + transient definition => INVALID;
+- TRANSIENT + static `loadCases` => INVALID;
+- LINEAR_STATIC + modal `PERIOD` request => INVALID.
 
 ### 21.6 TypeScript / bridge
 
 Test:
 
 - V1 transport remains accepted;
-- V2 three-profile union is type-safe;
-- validation transport includes `analysisSpecSchemaVersion`;
-- migration transport works and does not write artifacts;
-- no new solver execution permissions are introduced.
+- V2 union is type-safe;
+- V1-to-V2 migration transport is pure/read-only;
+- no new solver execution permission;
+- existing V1 readiness/render rejects V2 rather than reinterpreting it.
 
 ## 22. Completion criteria
 
-PR27 is complete only when all of the following are true:
+PR27 is complete only when:
 
-1. V1 AnalysisSpec behavior and fingerprints are regression-proven unchanged.
-2. V2 exact envelope is implemented.
-3. V2 `LINEAR_STATIC` validates and normalizes deterministically.
-4. V2 `MODAL` validates and normalizes deterministically.
-5. V2 `TRANSIENT` validates and normalizes deterministically.
-6. V2 result-request whitelists are enforced.
-7. Transient relative/absolute acceleration semantics are explicit for base excitation.
-8. Transient artifact path is excluded from semantic fingerprint while SHA remains included.
+1. V1 normalized semantics and fingerprints are regression-proven unchanged.
+2. V2 shared envelope is implemented.
+3. V2 `LINEAR_STATIC` validates/normalizes/fingerprints deterministically.
+4. V2 `MODAL` validates/normalizes/fingerprints deterministically.
+5. V2 `TRANSIENT` validates/normalizes/fingerprints deterministically.
+6. All result-request whitelists are enforced.
+7. Base-excitation relative/absolute acceleration semantics are explicit.
+8. Transient artifact path is excluded from semantic fingerprint while SHA is included.
 9. Deterministic V1-to-V2 static migration exists.
-10. Python public validation API remains one version-routing entry point.
-11. TypeScript public AnalysisSpec input becomes a safe V1/V2 discriminated union.
+10. Python validation remains one version-routing entry point.
+11. TypeScript AnalysisSpec is a safe V1/V2 discriminated union.
 12. Current PR26 V1 static execution path remains fully green.
-13. MODAL/TRANSIENT are never mislabeled READY or RENDERED by PR27.
-14. No natural-language completion, repair, ANSYS rendering, nonlinear analysis, or optimization work leaks into scope.
-15. Standard repository verification remains green:
+13. Every V2 profile, including V2 static, stops at `VALID` in PR27 and cannot be mislabeled READY/RENDERED.
+14. No natural-language completion, repair, ANSYS rendering, nonlinear analysis, or optimization leaks into scope.
+15. Standard verification is green:
     - `pnpm typecheck`
     - `pnpm test:ts`
     - `python -m pytest`
@@ -1051,28 +959,28 @@ PR27 is complete only when all of the following are true:
 
 ## 23. Follow-on roadmap
 
-After PR27:
+### PR28 — V2 Analysis Readiness + OpenSees Renderers
 
-### PR28 — OpenSees Modal + Transient Readiness/Renderer
+Admit V2 profiles into solver-specific readiness/rendering:
 
-Add profile-specific readiness and deterministic OpenSees render/extraction paths for validated V2 `MODAL` and `TRANSIENT` specs.
+- V2 `LINEAR_STATIC` via deterministic reuse/projection of the proven PR26 static compiler while preserving V2 identity;
+- V2 `MODAL` readiness + renderer + canonical modal results;
+- V2 `TRANSIENT` readiness + renderer + structural response extraction.
 
 ### PR29 — Controlled Natural-Language Analysis Completion
 
-Add evidence-backed natural-language Analysis Requirement Draft and deterministic completion for Static, Modal, and Transient.
-
-Controlled deterministic target resolution may use uniquely provable model/template facts, but must not guess generic geometric roles.
+Add evidence-backed Analysis Requirement Draft and deterministic completion for Static, Modal, and Transient. Controlled target resolution may use uniquely provable model/template facts but must not guess generic geometric roles.
 
 ### PR30 — Controlled Repair
 
-Turn missing, ambiguous, conflict, and readiness findings into explicit repair proposals requiring user/project adoption rather than silent engineering mutation.
+Convert missing/ambiguous/conflict/readiness findings into explicit repair proposals requiring user/project adoption rather than silent engineering mutation.
 
 ### Later
 
-- ANSYS renderer parity for the same analysis profiles;
+- ANSYS parity for the same profiles;
 - dual-solver golden paths;
 - parameter/optimization specifications;
-- broader modeling/analysis families.
+- broader modeling and analysis families.
 
 ## 24. Final architecture after PR27
 
@@ -1090,11 +998,11 @@ Turn missing, ambiguous, conflict, and readiness findings into explicit repair p
                               v
                             VALID
                               │
-               ┌──────────────┴──────────────┐
-               │                             │
-               v                             v
-      existing static path        future profile readiness
-        remains proven             (PR28 and later)
+           ┌──────────────────┴──────────────────┐
+           │                                     │
+           v                                     v
+   V1 static only                       every V2 profile
+ existing PR26 path                   stops at VALID in PR27
 ```
 
-PR27's success is not that FEMagent can already execute every new analysis profile. Its success is that FEMagent gains a stable, versioned, solver-neutral engineering language in which static, modal, and transient analyses can be represented without ambiguity or schema sprawl, while preserving all previously proven V1 static behavior.
+PR27 succeeds when FEMagent has a stable, versioned, solver-neutral engineering language for static, modal, and transient analysis without schema sprawl, while all previously proven V1 static behavior remains intact and no V2 profile is prematurely treated as executable.
