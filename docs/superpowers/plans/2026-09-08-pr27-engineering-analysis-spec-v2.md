@@ -34,8 +34,8 @@
 ## File Map
 
 ### Create
-- `fem_core/analysis_spec/common.py` — V2-safe primitive validators and canonical SHA helper.
-- `fem_core/analysis_spec/v1.py` — preserved PR25 V1 implementation.
+- `fem_core/analysis_spec/common.py`
+- `fem_core/analysis_spec/v1.py`
 - `fem_core/analysis_spec/v2/__init__.py`
 - `fem_core/analysis_spec/v2/validator.py`
 - `fem_core/analysis_spec/v2/static.py`
@@ -68,7 +68,6 @@
 - `packages/fem-tools/src/index.ts`
 - `.pi/extensions/analysis-spec-tools.ts`
 - `tests/ts/analysis-spec.test.ts`
-- `tests/ts/analysis-spec-v2.test.ts`
 - `tests/ts/analysis-spec-tool-registration.test.ts`
 - `tests/ts/analysis-prepare-tool-registration.test.ts`
 - `tests/ts/analysis-readiness.test.ts`
@@ -85,9 +84,9 @@
 - Test: `tests/python/test_analysis_spec_fingerprint.py`
 
 **Interfaces:**
-- Public: `validate_engineering_analysis_spec(spec: dict[str, Any]) -> dict[str, Any]`.
+- Public: `validate_engineering_analysis_spec(spec: Any) -> dict[str, Any]`.
 - Internal: `validate_engineering_analysis_spec_v1(spec: Any) -> dict[str, Any]`.
-- V2 helpers in `common.py`: `_issue()`, `validate_exact_keys()`, `is_positive_int()`, `is_finite_number()`, `validate_id_token()`, `validate_positive_target_id()`, `canonical_sha256()`.
+- V2 common helpers: `issue`, `validate_exact_keys`, `is_positive_int`, `is_finite_number`, `validate_id_token`, `validate_positive_target_id`, `canonical_sha256`.
 
 - [ ] **Step 1: Write the failing V1-module parity test**
 
@@ -107,21 +106,29 @@ python -m pytest tests/python/test_analysis_spec.py::test_public_router_matches_
 
 Expected: import failure for `fem_core.analysis_spec.v1`.
 
-- [ ] **Step 3: Move the current V1 implementation without semantic edits**
+- [ ] **Step 3: Copy the current V1 module mechanically, then rename only its public function**
 
-Move the existing validator body and private V1 helpers into `v1.py` and expose:
-
-```python
-def validate_engineering_analysis_spec_v1(spec: Any) -> dict[str, Any]:
-    # body copied from the current validate_engineering_analysis_spec implementation
-    ...
+```bash
+cp fem_core/analysis_spec/validator.py fem_core/analysis_spec/v1.py
+python - <<'PY'
+from pathlib import Path
+path = Path("fem_core/analysis_spec/v1.py")
+text = path.read_text(encoding="utf-8")
+old = "def validate_engineering_analysis_spec(spec: dict[str, Any]) -> dict[str, Any]:"
+new = "def validate_engineering_analysis_spec_v1(spec: dict[str, Any]) -> dict[str, Any]:"
+if text.count(old) != 1:
+    raise SystemExit("expected exactly one V1 public validator definition")
+path.write_text(text.replace(old, new), encoding="utf-8")
+PY
 ```
 
-When implementing, replace the comment/body marker above with the current production body verbatim. Do not change issue ordering, sort keys, numeric values, canonical JSON settings, or report fields.
+Do not alter any other V1 line before the V1 regression suite is green.
 
-Create `common.py` with concrete V2 helpers:
+- [ ] **Step 4: Create concrete V2-safe common helpers**
 
 ```python
+from __future__ import annotations
+
 import hashlib
 import json
 import math
@@ -144,16 +151,43 @@ def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
 
 
+def validate_exact_keys(value: Any, expected: set[str], path: str, issues: list[dict[str, str]]) -> bool:
+    if not isinstance(value, dict):
+        issues.append(issue("ANALYSIS_SPEC_INVALID_SCHEMA", path, f"{path or 'AnalysisSpec'} must be a JSON object"))
+        return False
+    for key in sorted(set(value) - expected):
+        child = f"{path}.{key}" if path else key
+        issues.append(issue("ANALYSIS_SPEC_UNKNOWN_FIELD", child, f"Unknown AnalysisSpec field: {child}"))
+    for key in sorted(expected - set(value)):
+        child = f"{path}.{key}" if path else key
+        issues.append(issue("ANALYSIS_SPEC_INVALID_SCHEMA", child, f"Required AnalysisSpec field is missing: {child}"))
+    return True
+
+
+def validate_id_token(value: Any, path: str, issues: list[dict[str, str]]) -> str | None:
+    if not isinstance(value, str) or ID_RE.fullmatch(value) is None:
+        issues.append(issue("ANALYSIS_SPEC_INVALID_ID", path, f"{path} must match {ID_RE.pattern}"))
+        return None
+    return value
+
+
+def validate_positive_target_id(value: Any, path: str, issues: list[dict[str, str]]) -> int | None:
+    if not is_positive_int(value):
+        issues.append(issue("ANALYSIS_SPEC_INVALID_TARGET_ID", path, f"{path} must be a positive integer"))
+        return None
+    return value
+
+
 def canonical_sha256(value: Any) -> str:
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 ```
 
-`validate_exact_keys`, `validate_id_token`, and `validate_positive_target_id` must append the existing `ANALYSIS_SPEC_*` issue family and return booleans/validated values rather than raising.
-
-- [ ] **Step 4: Make `validator.py` a version router**
+- [ ] **Step 5: Replace `validator.py` with the version router**
 
 ```python
+from __future__ import annotations
+
 from typing import Any
 
 from fem_core.analysis_spec.v1 import validate_engineering_analysis_spec_v1
@@ -166,18 +200,13 @@ def validate_engineering_analysis_spec(spec: Any) -> dict[str, Any]:
     return validate_engineering_analysis_spec_v1(spec)
 ```
 
-Unknown/missing schema versions continue through the proven V1 fail-closed schema error path until they explicitly equal `2.0`.
+Unknown or missing versions continue through the proven V1 fail-closed schema path unless version is exactly `2.0`.
 
-- [ ] **Step 5: Run V1 regression**
+- [ ] **Step 6: Run V1 regression and commit**
 
 ```bash
 python -m pytest tests/python/test_analysis_spec.py tests/python/test_analysis_spec_fingerprint.py -q
 python -m ruff check fem_core/analysis_spec/validator.py fem_core/analysis_spec/v1.py fem_core/analysis_spec/common.py
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
 git add fem_core/analysis_spec/validator.py fem_core/analysis_spec/v1.py fem_core/analysis_spec/common.py tests/python/test_analysis_spec.py tests/python/test_analysis_spec_fingerprint.py
 git commit -m "refactor: preserve AnalysisSpec V1 behind version router"
 ```
@@ -196,8 +225,9 @@ git commit -m "refactor: preserve AnalysisSpec V1 behind version router"
 
 **Interfaces:**
 - `validate_engineering_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any]`.
-- `normalize_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any]`.
-- `fingerprint_analysis_spec_v2(normalized_spec: dict[str, Any]) -> str`.
+- `validate_v2_static(spec, issues) -> None`.
+- `normalize_analysis_spec_v2(spec) -> dict[str, Any]`.
+- `fingerprint_analysis_spec_v2(normalized_spec) -> str`.
 
 - [ ] **Step 1: Add exact V2 static fixture**
 
@@ -205,7 +235,7 @@ git commit -m "refactor: preserve AnalysisSpec V1 behind version router"
 {"schemaVersion":"2.0","kind":"engineering_analysis_spec","modelSpecFingerprint":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","analysisType":"LINEAR_STATIC","units":{"force":"kN"},"definition":{"loadCases":[{"loadCaseId":"LC1","nodalLoads":[{"nodeId":2,"FX":0,"FY":-10,"MZ":0}]}]},"resultRequests":[{"requestId":"R1","loadCaseId":"LC1","quantity":"DISPLACEMENT","target":{"type":"NODE","id":2},"component":"Y"}]}
 ```
 
-- [ ] **Step 2: Write executable RED tests**
+- [ ] **Step 2: Write RED static tests**
 
 ```python
 def test_v2_static_validates() -> None:
@@ -218,17 +248,13 @@ def test_v2_static_validates() -> None:
 
 def test_v2_static_rejects_duplicate_load_target() -> None:
     spec = load_v2_static()
-    spec["definition"]["loadCases"][0]["nodalLoads"].append(
-        {"nodeId": 2, "FX": 1, "FY": 0, "MZ": 0}
-    )
+    spec["definition"]["loadCases"][0]["nodalLoads"].append({"nodeId": 2, "FX": 1, "FY": 0, "MZ": 0})
     result = validate_engineering_analysis_spec(spec)
     assert result["status"] == "INVALID"
     assert "ANALYSIS_SPEC_DUPLICATE_NODAL_LOAD_TARGET" in codes(result)
 ```
 
-Add equivalent executable tests for unknown fields, bad discriminator, unsupported force unit, zero/multiple load cases, empty nodal loads, zero load, missing FX/FY/MZ, unsupported request, missing load-case reference, duplicate request ID, positive target IDs, and non-finite values.
-
-Add a two-load/two-request fixture mutation, reverse `nodalLoads` and `resultRequests`, and assert identical normalized spec and fingerprint.
+Add executable cases for unknown fields, wrong discriminator, unsupported force unit, wrong load-case count, empty nodal loads, zero load, missing FX/FY/MZ, unsupported static request, missing load-case reference, duplicate request ID, bad target IDs, and non-finite numbers. Add a reorder test proving identical normalized spec/fingerprint.
 
 - [ ] **Step 3: Run RED**
 
@@ -236,28 +262,46 @@ Add a two-load/two-request fixture mutation, reverse `nodalLoads` and `resultReq
 python -m pytest tests/python/test_analysis_spec_v2_static.py -q
 ```
 
-Expected: missing V2 module or V2 currently rejected.
-
-- [ ] **Step 4: Implement V2 envelope/static validation and normalization**
-
-Exact V2 top-level keys:
+- [ ] **Step 4: Implement the V2 envelope and static profile**
 
 ```python
 V2_KEYS = {"schemaVersion", "kind", "modelSpecFingerprint", "analysisType", "units", "definition", "resultRequests"}
+
+
+def validate_engineering_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any]:
+    issues: list[dict[str, str]] = []
+    validate_exact_keys(spec, V2_KEYS, "", issues)
+    if spec.get("schemaVersion") != "2.0":
+        issues.append(issue("ANALYSIS_SPEC_INVALID_SCHEMA", "schemaVersion", "schemaVersion must equal 2.0"))
+    if spec.get("kind") != "engineering_analysis_spec":
+        issues.append(issue("ANALYSIS_SPEC_INVALID_SCHEMA", "kind", "kind must equal engineering_analysis_spec"))
+    model_fp = spec.get("modelSpecFingerprint")
+    if not isinstance(model_fp, str) or SHA256_RE.fullmatch(model_fp) is None:
+        issues.append(issue("ANALYSIS_SPEC_INVALID_MODEL_FINGERPRINT", "modelSpecFingerprint", "modelSpecFingerprint must be lowercase SHA-256 hex"))
+    analysis_type = spec.get("analysisType")
+    if analysis_type == "LINEAR_STATIC":
+        validate_v2_static(spec, issues)
+    elif analysis_type == "MODAL":
+        validate_v2_modal(spec, issues)
+    elif analysis_type == "TRANSIENT":
+        validate_v2_transient(spec, issues)
+    else:
+        issues.append(issue("ANALYSIS_SPEC_UNSUPPORTED_ANALYSIS_TYPE", "analysisType", f"Unsupported AnalysisSpec V2 analysisType: {analysis_type!r}"))
+    if issues:
+        return {"schema": "FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1", "status": "INVALID", "issues": issues, "normalizedSpec": None, "analysisSpecFingerprint": None}
+    normalized = normalize_analysis_spec_v2(spec)
+    return {"schema": "FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1", "status": "VALID", "issues": [], "normalizedSpec": normalized, "analysisSpecFingerprint": fingerprint_analysis_spec_v2(normalized)}
 ```
 
-Static exact rules mirror V1 except load cases live at `definition.loadCases`. `resultRequests` must be a non-empty array. Normalize static load cases by `loadCaseId`, nodal loads by `nodeId`, and result requests by `requestId`.
+During Task 2, `validate_v2_modal` and `validate_v2_transient` may be imported only after Tasks 3/4 add them; until then, route those discriminators to `ANALYSIS_SPEC_UNSUPPORTED_ANALYSIS_TYPE` so Task 2 tests remain isolated. `validate_v2_static` must enforce exact static shapes and the PR25 whitelist under `definition.loadCases`.
 
-- [ ] **Step 5: Run GREEN**
+Normalize static load cases by `loadCaseId`, nodal loads by `nodeId`, and result requests by `requestId`. Static `resultRequests` must be non-empty.
+
+- [ ] **Step 5: Run GREEN and commit**
 
 ```bash
 python -m pytest tests/python/test_analysis_spec_v2_static.py tests/python/test_analysis_spec.py tests/python/test_analysis_spec_fingerprint.py -q
 python -m ruff check fem_core/analysis_spec/v2 tests/python/test_analysis_spec_v2_static.py
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
 git add fem_core/analysis_spec/v2 tests/fixtures/analysis_spec/simple-linear-static-v2.json tests/python/test_analysis_spec_v2_static.py
 git commit -m "feat: add AnalysisSpec V2 linear-static profile"
 ```
@@ -276,8 +320,8 @@ git commit -m "feat: add AnalysisSpec V2 linear-static profile"
 **Interfaces:**
 - Units exact `{}`.
 - Definition exact `{"modeCount": positive integer}`.
-- Scalar requests: `EIGENVALUE|NATURAL_FREQUENCY|PERIOD` with only `requestId`, `quantity`, `mode`.
-- Mode shape: `MODE_SHAPE` + NODE target + X/Y/RZ + mode.
+- Scalar requests contain exactly `requestId`, `quantity`, `mode`.
+- Mode-shape requests contain exactly `requestId`, `quantity`, `mode`, `target`, `component`.
 
 - [ ] **Step 1: Add modal fixture**
 
@@ -285,7 +329,7 @@ git commit -m "feat: add AnalysisSpec V2 linear-static profile"
 {"schemaVersion":"2.0","kind":"engineering_analysis_spec","modelSpecFingerprint":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","analysisType":"MODAL","units":{},"definition":{"modeCount":3},"resultRequests":[{"requestId":"FREQ1","quantity":"NATURAL_FREQUENCY","mode":1},{"requestId":"MODE1Y","quantity":"MODE_SHAPE","mode":1,"target":{"type":"NODE","id":3},"component":"Y"}]}
 ```
 
-- [ ] **Step 2: Write executable RED modal tests**
+- [ ] **Step 2: Write RED modal tests**
 
 ```python
 def test_modal_mode_index_must_be_within_requested_count() -> None:
@@ -310,7 +354,7 @@ def test_mode_shape_accepts_rz() -> None:
     assert validate_engineering_analysis_spec(spec)["status"] == "VALID"
 ```
 
-Also test `modeCount=0`, `mode=0`, scalar extra `component/location/loadCaseId`, mode-shape missing NODE target, ELEMENT target, bad component Z, duplicate requestId, non-empty requests, and deterministic request ordering.
+Also test `modeCount=0`, `mode=0`, scalar extra `component/location/loadCaseId`, mode shape without NODE target, ELEMENT target, bad Z component, duplicate request ID, empty requests, and deterministic request reorder.
 
 - [ ] **Step 3: Run RED**
 
@@ -318,9 +362,43 @@ Also test `modeCount=0`, `mode=0`, scalar extra `component/location/loadCaseId`,
 python -m pytest tests/python/test_analysis_spec_v2_modal.py -q
 ```
 
-- [ ] **Step 4: Implement modal validation/normalization**
+- [ ] **Step 4: Implement modal profile**
 
-Do not read ModelSpec mass, target existence, solver support, or mode availability beyond the intrinsic `mode <= modeCount` contract.
+```python
+SCALAR_MODAL = {"EIGENVALUE", "NATURAL_FREQUENCY", "PERIOD"}
+
+
+def validate_v2_modal(spec: dict[str, Any], issues: list[dict[str, str]]) -> None:
+    validate_exact_keys(spec.get("units"), set(), "units", issues)
+    definition = spec.get("definition")
+    if validate_exact_keys(definition, {"modeCount"}, "definition", issues):
+        count = definition.get("modeCount")
+        if not is_positive_int(count):
+            issues.append(issue("ANALYSIS_SPEC_INVALID_MODE_COUNT", "definition.modeCount", "modeCount must be a positive integer"))
+    requests = spec.get("resultRequests")
+    if not isinstance(requests, list) or not requests:
+        issues.append(issue("ANALYSIS_SPEC_INVALID_SCHEMA", "resultRequests", "resultRequests must be a non-empty array"))
+        return
+    seen: set[str] = set()
+    for index, request in enumerate(requests):
+        path = f"resultRequests[{index}]"
+        quantity = request.get("quantity") if isinstance(request, dict) else None
+        expected = {"requestId", "quantity", "mode"} if quantity in SCALAR_MODAL else {"requestId", "quantity", "mode", "target", "component"}
+        if not validate_exact_keys(request, expected, path, issues):
+            continue
+        request_id = validate_id_token(request.get("requestId"), f"{path}.requestId", issues)
+        if request_id is not None and request_id in seen:
+            issues.append(issue("ANALYSIS_SPEC_DUPLICATE_ID", f"{path}.requestId", f"Duplicate requestId {request_id!r}"))
+        elif request_id is not None:
+            seen.add(request_id)
+        mode = request.get("mode")
+        if not is_positive_int(mode):
+            issues.append(issue("ANALYSIS_SPEC_INVALID_MODE_INDEX", f"{path}.mode", "mode must be a positive integer"))
+        elif is_positive_int(definition.get("modeCount")) and mode > definition["modeCount"]:
+            issues.append(issue("ANALYSIS_SPEC_MODE_EXCEEDS_REQUESTED_COUNT", f"{path}.mode", "Requested mode exceeds definition.modeCount"))
+```
+
+Complete the same function by validating scalar quantity membership and exact mode-shape NODE/X|Y|RZ semantics; do not read ModelSpec mass or target existence.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -347,23 +425,23 @@ git commit -m "feat: add AnalysisSpec V2 modal profile"
 - Nodal excitation units exact `{force: N|kN}`; base excitation units exact `{}`.
 - `timeStep`/`duration` positive finite.
 - Damping exact union `NONE | RAYLEIGH(alphaM,betaK)`.
-- Artifact reference exact `{path, sha256}`; path must be non-empty workspace-relative locator with no absolute root and no `..` segment.
+- Artifact reference exact `{path, sha256}`; path is non-empty workspace-relative with no absolute root or `..` segment.
 
 - [ ] **Step 1: Add both complete fixtures**
 
-Nodal fixture:
+Nodal:
 
 ```json
 {"schemaVersion":"2.0","kind":"engineering_analysis_spec","modelSpecFingerprint":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","analysisType":"TRANSIENT","units":{"force":"N"},"definition":{"time":{"timeStep":0.01,"duration":1.0},"damping":{"type":"NONE"},"excitation":{"type":"NODAL_TIME_HISTORY","nodeId":3,"component":"Y","quantity":"FORCE","loadArtifact":{"path":"loads/force.csv","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},"resultRequests":[{"requestId":"A3Y","quantity":"ACCELERATION","target":{"type":"NODE","id":3},"component":"Y"}]}
 ```
 
-Base fixture:
+Base:
 
 ```json
 {"schemaVersion":"2.0","kind":"engineering_analysis_spec","modelSpecFingerprint":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","analysisType":"TRANSIENT","units":{},"definition":{"time":{"timeStep":0.01,"duration":1.0},"damping":{"type":"RAYLEIGH","alphaM":0.0,"betaK":0.002},"excitation":{"type":"UNIFORM_BASE_EXCITATION","component":"X","quantity":"ACCELERATION","loadArtifact":{"path":"loads/eq.csv","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},"resultRequests":[{"requestId":"A3X","quantity":"ABSOLUTE_ACCELERATION","target":{"type":"NODE","id":3},"component":"X"}]}
 ```
 
-- [ ] **Step 2: Write executable RED transient tests**
+- [ ] **Step 2: Write RED transient tests**
 
 ```python
 def test_base_excitation_rejects_bare_acceleration() -> None:
@@ -388,7 +466,7 @@ def test_transient_artifact_sha_is_semantic_identity() -> None:
     assert fingerprint(first) != fingerprint(second)
 ```
 
-Also add exact tests for non-positive/non-finite time values; `NONE` extra fields; negative/non-finite Rayleigh coefficients; bad SHA; empty/absolute/parent-traversal paths; bad excitation discriminator/component/quantity; nodal excitation with `{}` units; base excitation with force units; `RELATIVE_ACCELERATION`/`ABSOLUTE_ACCELERATION`; nodal `ACCELERATION`; common displacement/velocity/reaction/generalized-force requests; duplicate requestId; deterministic request ordering.
+Also test time positivity/finiteness; exact `NONE`; Rayleigh non-negative finite coefficients; bad SHA; empty/absolute/parent-traversal path; excitation discriminator/component/quantity; profile-dependent units; relative/absolute acceleration; nodal acceleration; shared displacement/velocity/reaction/generalized-force whitelist; duplicate request ID; deterministic request ordering.
 
 - [ ] **Step 3: Run RED**
 
@@ -396,16 +474,21 @@ Also add exact tests for non-positive/non-finite time values; `NONE` extra field
 python -m pytest tests/python/test_analysis_spec_v2_transient.py -q
 ```
 
-- [ ] **Step 4: Implement transient validation and separate fingerprint projection**
+- [ ] **Step 4: Implement transient profile and path-excluding fingerprint projection**
 
-Normalization retains path. Fingerprint projection deep-copies normalized transient input and executes:
+Use exact top-level transient definition keys `{time, damping, excitation}`. Use `PurePosixPath` after normalizing backslashes to `/` only for syntax validation; preserve original path string in normalized spec. Reject empty, absolute, drive-prefixed, or parent-traversal locators.
+
+Fingerprint projection:
 
 ```python
-artifact = payload["definition"]["excitation"]["loadArtifact"]
-del artifact["path"]
+def fingerprint_payload(normalized: dict[str, Any]) -> dict[str, Any]:
+    payload = copy.deepcopy(normalized)
+    if payload["analysisType"] == "TRANSIENT":
+        del payload["definition"]["excitation"]["loadArtifact"]["path"]
+    return payload
 ```
 
-Then hash with `canonical_sha256(payload)`.
+Then `canonical_sha256(fingerprint_payload(normalized))`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -450,7 +533,7 @@ def test_v2_source_is_not_migrated_again() -> None:
     assert report["status"] == "UNSUPPORTED_SOURCE"
 ```
 
-Also test invalid V1 -> `INVALID_SOURCE`, semantic result requests preserved, and target candidate validates as V2.
+Also test invalid V1 -> `INVALID_SOURCE`, result requests preserved, and target candidate validates V2.
 
 - [ ] **Step 2: Run RED**
 
@@ -459,8 +542,6 @@ python -m pytest tests/python/test_analysis_spec_migration.py -q
 ```
 
 - [ ] **Step 3: Implement pure migration**
-
-Migration source shape is copied as:
 
 ```python
 candidate = {
@@ -474,11 +555,9 @@ candidate = {
 }
 ```
 
-Validate the candidate through `validate_engineering_analysis_spec`; return normalized V2 candidate and both fingerprints. No workspace parameter or filesystem APIs.
+Validate candidate through the public validator and return normalized V2 candidate plus source/target fingerprints. The function has no workspace parameter and no filesystem call.
 
 - [ ] **Step 4: Add bridge command/test**
-
-Import migration in `bridge.py` and add:
 
 ```python
 elif command == "analysisSpec.migrateV1ToV2":
@@ -529,9 +608,7 @@ def test_valid_v2_is_not_admitted_to_pr26_v1_readiness() -> None:
 python -m pytest tests/python/test_analysis_readiness.py::test_valid_v2_is_not_admitted_to_pr26_v1_readiness -q
 ```
 
-- [ ] **Step 3: Add the explicit version guard before V1 field access**
-
-After intrinsic validations and normalized/fingerprint invariant checks:
+- [ ] **Step 3: Add explicit version guard before V1 field access**
 
 ```python
 if normalized_analysis.get("schemaVersion") != "1.0":
@@ -558,7 +635,7 @@ if normalized_analysis.get("schemaVersion") != "1.0":
 
 - [ ] **Step 4: Add render fail-closed test**
 
-Use a valid migrated V2 spec with `analysis.renderOpenSees`; assert bridge `ok=True`, result `status="BLOCKED"`, readiness status `NOT_READY`, issue code above, `artifacts is None`, and no generated-analysis directory exists.
+Use valid migrated V2 with `analysis.renderOpenSees`; assert bridge `ok=True`, result `status="BLOCKED"`, readiness `NOT_READY`, issue code above, `artifacts is None`, and no generated-analysis directory exists.
 
 - [ ] **Step 5: Run V1/V2 admission regressions and commit**
 
@@ -583,12 +660,12 @@ git commit -m "fix: keep PR26 OpenSees analysis admission V1-only"
 
 **Interfaces:**
 - `FemEngineeringAnalysisSpecInput = FemEngineeringAnalysisSpecV1Input | FemEngineeringAnalysisSpecV2Input`.
-- Preserve old `FemAnalysisResultRequest` as the V1 static request alias used by PR26 mappings.
-- New V2 request unions use distinct names: `FemAnalysisV2StaticResultRequest`, `FemAnalysisModalResultRequest`, `FemAnalysisTransientResultRequest`.
+- Preserve `FemAnalysisResultRequest` as the V1 static request alias used by PR26 mappings.
+- V2 request unions: `FemAnalysisV2StaticResultRequest`, `FemAnalysisModalResultRequest`, `FemAnalysisTransientResultRequest`.
 - `runFemAnalysisReadiness` and `runFemAnalysisRenderOpenSees` accept `FemEngineeringAnalysisSpecV1Input` only.
 - `FemOpenSeesAnalysisRenderedResult.input.normalizedAnalysisSpec` is `FemEngineeringAnalysisSpecV1Input`.
 
-- [ ] **Step 1: Write RED typed V2 fixture construction**
+- [ ] **Step 1: Write RED typed V2 construction**
 
 ```ts
 const modal: FemEngineeringModalAnalysisSpecV2Input = {
@@ -602,7 +679,7 @@ const modal: FemEngineeringModalAnalysisSpecV2Input = {
 };
 ```
 
-Add typed V2 static, nodal transient, and base transient objects and pass each to `runFemAnalysisSpecValidate`.
+Add typed V2 static, nodal transient, and base transient values and pass each to `runFemAnalysisSpecValidate`.
 
 - [ ] **Step 2: Run RED**
 
@@ -611,11 +688,7 @@ pnpm typecheck
 pnpm exec tsx --test tests/ts/analysis-spec-v2.test.ts
 ```
 
-Expected: missing V2 types/transport.
-
 - [ ] **Step 3: Implement exact TypeScript unions**
-
-Define:
 
 ```ts
 export type FemAnalysisTypeV2 = "LINEAR_STATIC" | "MODAL" | "TRANSIENT";
@@ -628,9 +701,9 @@ export type FemEngineeringAnalysisSpecInput =
   | FemEngineeringAnalysisSpecV2Input;
 ```
 
-Keep current V1 interfaces structurally unchanged under `FemEngineeringAnalysisSpecV1Input`. Add exact V2 static/modal/transient definitions and request unions. `FemAnalysisSpecValidation.normalizedSpec` becomes `FemEngineeringAnalysisSpecInput | null` without changing the report shape.
+Keep the current V1 interfaces structurally unchanged under `FemEngineeringAnalysisSpecV1Input`. Add exact V2 definitions and request unions. `FemAnalysisSpecValidation.normalizedSpec` becomes `FemEngineeringAnalysisSpecInput | null` without changing validation report fields.
 
-Add migration type:
+Migration type:
 
 ```ts
 export interface FemAnalysisSpecMigrationV1ToV2 {
@@ -642,7 +715,7 @@ export interface FemAnalysisSpecMigrationV1ToV2 {
 }
 ```
 
-- [ ] **Step 4: Add migration transport**
+- [ ] **Step 4: Add migration transport and narrow execution inputs**
 
 ```ts
 export async function runFemAnalysisSpecMigrateV1ToV2(
@@ -659,7 +732,7 @@ export async function runFemAnalysisSpecMigrateV1ToV2(
 }
 ```
 
-Export new types/function from `index.ts`.
+Change `runFemAnalysisReadiness` and `runFemAnalysisRenderOpenSees` analysis-spec parameters to `FemEngineeringAnalysisSpecV1Input`. Change PR26 rendered input normalized analysis type to V1. Export all new symbols from `index.ts`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -695,7 +768,7 @@ assert.match(extension, /V2.*not.*READY|V2.*does not.*READY/is);
 assert.doesNotMatch(extension, /name:\s*"fem_analysis_spec_migrate/);
 ```
 
-Prepare-tool test must still find V1-only wording and must not find a V2 union bound to the `analysisSpec` field of `fem_analysis_prepare_opensees`.
+Prepare-tool test must still find V1-only wording and V1 schema binding.
 
 - [ ] **Step 2: Run RED**
 
@@ -704,8 +777,6 @@ pnpm exec tsx --test tests/ts/analysis-spec-tool-registration.test.ts tests/ts/a
 ```
 
 - [ ] **Step 3: Build explicit TypeBox schemas**
-
-Create named schemas `analysisSpecV1Schema`, `analysisSpecV2StaticSchema`, `analysisSpecV2ModalSchema`, `analysisSpecV2TransientNodalSchema`, and `analysisSpecV2TransientBaseSchema`. Build:
 
 ```ts
 const analysisSpecValidationSchema = Type.Union([
@@ -717,9 +788,9 @@ const analysisSpecValidationSchema = Type.Union([
 ]);
 ```
 
-Bind this union only to `fem_analysis_spec_validate`. Keep `analysisSpecV1Schema` bound to `fem_analysis_prepare_opensees`.
+Define all five named schemas with `additionalProperties:false` and the exact profile fields from the design. Bind the union only to `fem_analysis_spec_validate`; bind `analysisSpecV1Schema` to `fem_analysis_prepare_opensees`.
 
-Update guidance to state V2 VALID proves only intrinsic solver-neutral validity and does not establish target existence, modal mass, artifact integrity/time alignment, solver response mapping, READY, RENDERED, or execution success.
+Update validation guidance: V2 VALID proves only intrinsic solver-neutral validity and does not establish target existence, modal mass, artifact integrity/time alignment, solver response mapping, READY, RENDERED, or execution success.
 
 - [ ] **Step 4: Run GREEN and commit**
 
@@ -734,7 +805,7 @@ git commit -m "feat: expose AnalysisSpec V2 intrinsic validation"
 
 ### Task 9: Full PR27 Verification + Scope Audit
 
-**Files:** Review every PR27 changed file; change production code only when a failing verification identifies a defect inside this approved spec.
+**Files:** Review every PR27 changed file; production changes at this task are allowed only when a failing verification demonstrates a defect inside this approved spec.
 
 **Interfaces:** Final state is V1 static executable as before; V2 Static/Modal/Transient intrinsically validatable only.
 
@@ -763,8 +834,6 @@ pnpm fem:health
 
 - [ ] **Step 4: Audit exact scope invariants**
 
-Confirm the diff/tests prove all of these:
-
 ```text
 V1 normalized/fingerprint semantics unchanged
 PR26 profile remains OPENSEES_FRAME_2D_LINEAR_STATIC_V1
@@ -782,8 +851,6 @@ no migration LLM-visible tool
 
 - [ ] **Step 5: Audit fingerprint invariants**
 
-Confirm tests explicitly prove:
-
 ```text
 V1 reorder => same V1 fingerprint
 V1 engineering-fact change => different V1 fingerprint
@@ -794,15 +861,15 @@ V2 transient different SHA => different V2 fingerprint
 V1 static fingerprint != migrated V2 static fingerprint
 ```
 
-- [ ] **Step 6: Commit only a verification-discovered spec-scoped fix**
+- [ ] **Step 6: Handle verification outcome**
 
-If all verification commands pass without code changes, do not create a commit. If one fails, fix only the defect demonstrated by that failing check, rerun the failing focused test plus the full verification set, then commit the exact changed files with a descriptive message.
+If all verification commands pass without code changes, create no commit. If one fails, fix only the demonstrated spec-scoped defect, rerun that focused test and the full verification set, then commit the exact changed files with a message naming the defect.
 
 ---
 
 ## Execution Order and Review Gates
 
-Execute Tasks 1→9 in order, with a fresh RED→GREEN cycle and review at each task boundary:
+Execute Tasks 1→9 in order with a fresh RED→GREEN cycle and review at every task boundary:
 
 ```text
 1 V1 preservation/router
