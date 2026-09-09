@@ -8,7 +8,7 @@ import {
   runFemAnalysisRenderOpenSees,
   runFemModelSpecValidate,
   type FemAnalysisReadiness,
-  type FemEngineeringAnalysisSpecInput,
+  type FemEngineeringAnalysisSpecV1Input,
   type FemEngineeringModelSpecInput,
   type FemOpenSeesAnalysisRenderResult,
 } from "@femagent/fem-tools";
@@ -18,7 +18,7 @@ async function loadModel(): Promise<FemEngineeringModelSpecInput> {
   return JSON.parse(await readFile(fixture, "utf8")) as FemEngineeringModelSpecInput;
 }
 
-async function boundAnalysis(model: FemEngineeringModelSpecInput): Promise<FemEngineeringAnalysisSpecInput> {
+async function boundAnalysis(model: FemEngineeringModelSpecInput): Promise<FemEngineeringAnalysisSpecV1Input> {
   const validation = await runFemModelSpecValidate(process.cwd(), model);
   assert.equal(validation.status, "VALID");
   assert.ok(validation.modelSpecFingerprint);
