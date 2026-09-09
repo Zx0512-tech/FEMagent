@@ -5,6 +5,7 @@ from typing import Any
 
 from fem_core.analysis_spec import (
     evaluate_engineering_analysis_readiness,
+    migrate_engineering_analysis_spec_v1_to_v2,
     render_opensees_linear_static_analysis,
     validate_engineering_analysis_spec,
 )
@@ -121,6 +122,10 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
             result = inspect_model(workspace, _required_text(payload, "path"))
         elif command == "analysisSpec.validate":
             result = validate_engineering_analysis_spec(_required_object(payload, "spec"))
+        elif command == "analysisSpec.migrateV1ToV2":
+            result = migrate_engineering_analysis_spec_v1_to_v2(
+                _required_object(payload, "spec")
+            )
         elif command == "analysis.readiness":
             result = evaluate_engineering_analysis_readiness(
                 _required_object(payload, "modelSpec"),
