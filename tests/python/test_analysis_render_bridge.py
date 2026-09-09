@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from fem_core.analysis_spec import migrate_engineering_analysis_spec_v1_to_v2
 from fem_core.bridge import handle_request
 from fem_core.model_spec.validator import validate_engineering_model_spec
 from fem_core.protocol import BRIDGE_PROTOCOL
@@ -88,6 +89,28 @@ def test_analysis_render_rendered_and_blocked_are_domain_results(tmp_path: Path)
     )
     assert blocked["ok"] is True
     assert blocked["result"]["status"] == "BLOCKED"
+
+
+def test_valid_v2_render_is_blocked_without_generated_analysis_artifacts(tmp_path: Path) -> None:
+    model = _model_spec()
+    migration = migrate_engineering_analysis_spec_v1_to_v2(_analysis_spec(model))
+    v2 = migration["candidateSpec"]
+    assert isinstance(v2, dict)
+
+    response = handle_request(
+        _request("analysis.renderOpenSees", model, v2),
+        workspace=tmp_path,
+    )
+
+    assert response["ok"] is True
+    result = response["result"]
+    assert result["status"] == "BLOCKED"
+    assert result["artifacts"] is None
+    assert result["readiness"]["status"] == "NOT_READY"
+    assert "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION" in {
+        issue["code"] for issue in result["readiness"]["issues"]
+    }
+    assert not (tmp_path / ".femagent" / "generated-analyses").exists()
 
 
 def test_analysis_commands_require_object_specs(tmp_path: Path) -> None:
