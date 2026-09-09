@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 
 import type {
   FemAnalysisReadiness,
+  FemAnalysisSpecMigrationV1ToV2,
   FemAnalysisSpecValidation,
   FemEngineeringAnalysisSpecInput,
+  FemEngineeringAnalysisSpecV1Input,
   FemOpenSeesAnalysisRenderResult,
 } from "./analysisSpecTypes.js";
 import {
@@ -205,9 +207,17 @@ export async function runFemAnalysisSpecValidate(
   spec: FemEngineeringAnalysisSpecInput,
   signal?: AbortSignal,
 ): Promise<FemAnalysisSpecValidation> {
-  return await runFemCoreRequest<FemAnalysisSpecValidation>(
+  return await runFemCoreRequest<FemAnalysisSpecValidation>(cwd, "analysisSpec.validate", { spec }, { signal });
+}
+
+export async function runFemAnalysisSpecMigrateV1ToV2(
+  cwd: string,
+  spec: FemEngineeringAnalysisSpecV1Input,
+  signal?: AbortSignal,
+): Promise<FemAnalysisSpecMigrationV1ToV2> {
+  return await runFemCoreRequest<FemAnalysisSpecMigrationV1ToV2>(
     cwd,
-    "analysisSpec.validate",
+    "analysisSpec.migrateV1ToV2",
     { spec },
     { signal },
   );
@@ -216,29 +226,19 @@ export async function runFemAnalysisSpecValidate(
 export async function runFemAnalysisReadiness(
   cwd: string,
   modelSpec: FemEngineeringModelSpecInput,
-  analysisSpec: FemEngineeringAnalysisSpecInput,
+  analysisSpec: FemEngineeringAnalysisSpecV1Input,
   signal?: AbortSignal,
 ): Promise<FemAnalysisReadiness> {
-  return await runFemCoreRequest<FemAnalysisReadiness>(
-    cwd,
-    "analysis.readiness",
-    { modelSpec, analysisSpec },
-    { signal },
-  );
+  return await runFemCoreRequest<FemAnalysisReadiness>(cwd, "analysis.readiness", { modelSpec, analysisSpec }, { signal });
 }
 
 export async function runFemAnalysisRenderOpenSees(
   cwd: string,
   modelSpec: FemEngineeringModelSpecInput,
-  analysisSpec: FemEngineeringAnalysisSpecInput,
+  analysisSpec: FemEngineeringAnalysisSpecV1Input,
   signal?: AbortSignal,
 ): Promise<FemOpenSeesAnalysisRenderResult> {
-  return await runFemCoreRequest<FemOpenSeesAnalysisRenderResult>(
-    cwd,
-    "analysis.renderOpenSees",
-    { modelSpec, analysisSpec },
-    { signal },
-  );
+  return await runFemCoreRequest<FemOpenSeesAnalysisRenderResult>(cwd, "analysis.renderOpenSees", { modelSpec, analysisSpec }, { signal });
 }
 
 export async function runFemModelSpecValidate(
@@ -246,12 +246,7 @@ export async function runFemModelSpecValidate(
   spec: FemEngineeringModelSpecInput,
   signal?: AbortSignal,
 ): Promise<FemModelSpecValidation> {
-  return await runFemCoreRequest<FemModelSpecValidation>(
-    cwd,
-    "modelSpec.validate",
-    { spec },
-    { signal },
-  );
+  return await runFemCoreRequest<FemModelSpecValidation>(cwd, "modelSpec.validate", { spec }, { signal });
 }
 
 export async function runFemModelSpecReadiness(
@@ -259,12 +254,7 @@ export async function runFemModelSpecReadiness(
   spec: FemEngineeringModelSpecInput,
   signal?: AbortSignal,
 ): Promise<FemModelSpecReadiness> {
-  return await runFemCoreRequest<FemModelSpecReadiness>(
-    cwd,
-    "modelSpec.readiness",
-    { spec },
-    { signal },
-  );
+  return await runFemCoreRequest<FemModelSpecReadiness>(cwd, "modelSpec.readiness", { spec }, { signal });
 }
 
 export async function runFemLoadInspect(cwd: string, path: string, signal?: AbortSignal): Promise<FemLoadInspection> {
@@ -278,157 +268,45 @@ export async function runFemLoadStandardize(
   outputPath?: string,
   signal?: AbortSignal,
 ): Promise<FemStandardizedLoad> {
-  return await runFemCoreRequest<FemStandardizedLoad>(
-    cwd,
-    "load.standardize",
-    { path, mapping, ...(outputPath ? { outputPath } : {}) },
-    { signal },
-  );
+  return await runFemCoreRequest<FemStandardizedLoad>(cwd, "load.standardize", { path, mapping, ...(outputPath ? { outputPath } : {}) }, { signal });
 }
 
-export async function runFemSemanticInspect(
-  cwd: string,
-  modelPath: string,
-  manifestPath: string,
-  signal?: AbortSignal,
-): Promise<FemSemanticRoleInspection> {
-  return await runFemCoreRequest<FemSemanticRoleInspection>(
-    cwd,
-    "semantic.inspect",
-    { modelPath, manifestPath },
-    { signal },
-  );
+export async function runFemSemanticInspect(cwd: string, modelPath: string, manifestPath: string, signal?: AbortSignal): Promise<FemSemanticRoleInspection> {
+  return await runFemCoreRequest<FemSemanticRoleInspection>(cwd, "semantic.inspect", { modelPath, manifestPath }, { signal });
 }
 
-export async function runFemSemanticResolve(
-  cwd: string,
-  modelPath: string,
-  manifestPath: string,
-  roleId: string,
-  signal?: AbortSignal,
-): Promise<FemSemanticRoleResolution> {
-  return await runFemCoreRequest<FemSemanticRoleResolution>(
-    cwd,
-    "semantic.resolve",
-    { modelPath, manifestPath, roleId },
-    { signal },
-  );
+export async function runFemSemanticResolve(cwd: string, modelPath: string, manifestPath: string, roleId: string, signal?: AbortSignal): Promise<FemSemanticRoleResolution> {
+  return await runFemCoreRequest<FemSemanticRoleResolution>(cwd, "semantic.resolve", { modelPath, manifestPath, roleId }, { signal });
 }
 
-export async function runFemResultInspect(
-  cwd: string,
-  runRef: string,
-  signal?: AbortSignal,
-): Promise<FemResultManifest> {
+export async function runFemResultInspect(cwd: string, runRef: string, signal?: AbortSignal): Promise<FemResultManifest> {
   return await runFemCoreRequest<FemResultManifest>(cwd, "result.inspect", { runRef }, { signal });
 }
 
-export async function runFemResultQuery(
-  cwd: string,
-  runRef: string,
-  query: FemResultQueryRequest,
-  signal?: AbortSignal,
-): Promise<FemResultQuery> {
+export async function runFemResultQuery(cwd: string, runRef: string, query: FemResultQueryRequest, signal?: AbortSignal): Promise<FemResultQuery> {
   return await runFemCoreRequest<FemResultQuery>(cwd, "result.query", { runRef, query }, { signal });
 }
 
-export async function runFemEvidenceProject(
-  cwd: string,
-  projectId: string,
-  runRef: string,
-  evidenceId: string,
-  query: FemResultQueryRequest,
-  signal?: AbortSignal,
-): Promise<FemEngineeringEvidenceReport> {
-  return await runFemCoreRequest<FemEngineeringEvidenceReport>(
-    cwd,
-    "evidence.project",
-    { projectId, runRef, evidenceId, query },
-    { signal },
-  );
+export async function runFemEvidenceProject(cwd: string, projectId: string, runRef: string, evidenceId: string, query: FemResultQueryRequest, signal?: AbortSignal): Promise<FemEngineeringEvidenceReport> {
+  return await runFemCoreRequest<FemEngineeringEvidenceReport>(cwd, "evidence.project", { projectId, runRef, evidenceId, query }, { signal });
 }
 
-export async function runFemRoleEvidenceProject(
-  cwd: string,
-  projectId: string,
-  modelPath: string,
-  manifestPath: string,
-  roleId: string,
-  runRef: string,
-  evidenceId: string,
-  query: FemRoleEvidenceQueryRequest,
-  signal?: AbortSignal,
-): Promise<FemEngineeringEvidenceReport> {
-  return await runFemCoreRequest<FemEngineeringEvidenceReport>(
-    cwd,
-    "evidence.projectRole",
-    { projectId, modelPath, manifestPath, roleId, runRef, evidenceId, query },
-    { signal },
-  );
+export async function runFemRoleEvidenceProject(cwd: string, projectId: string, modelPath: string, manifestPath: string, roleId: string, runRef: string, evidenceId: string, query: FemRoleEvidenceQueryRequest, signal?: AbortSignal): Promise<FemEngineeringEvidenceReport> {
+  return await runFemCoreRequest<FemEngineeringEvidenceReport>(cwd, "evidence.projectRole", { projectId, modelPath, manifestPath, roleId, runRef, evidenceId, query }, { signal });
 }
 
-export async function runFemCrossSolverValidation(
-  cwd: string,
-  projectId: string,
-  left: FemCrossSolverSideRequest,
-  right: FemCrossSolverSideRequest,
-  query: FemCrossSolverQueryRequest,
-  signal?: AbortSignal,
-): Promise<FemCrossSolverValidationReport> {
-  return await runFemCoreRequest<FemCrossSolverValidationReport>(
-    cwd,
-    "validation.crossSolver",
-    { projectId, left, right, query },
-    { signal },
-  );
+export async function runFemCrossSolverValidation(cwd: string, projectId: string, left: FemCrossSolverSideRequest, right: FemCrossSolverSideRequest, query: FemCrossSolverQueryRequest, signal?: AbortSignal): Promise<FemCrossSolverValidationReport> {
+  return await runFemCoreRequest<FemCrossSolverValidationReport>(cwd, "validation.crossSolver", { projectId, left, right, query }, { signal });
 }
 
-export async function runFemSolverStatus<S extends FemSolverKey>(
-  cwd: string,
-  solver: S,
-  signal?: AbortSignal,
-): Promise<FemSolverStatus<S>> {
+export async function runFemSolverStatus<S extends FemSolverKey>(cwd: string, solver: S, signal?: AbortSignal): Promise<FemSolverStatus<S>> {
   return await runFemCoreRequest<FemSolverStatus<S>>(cwd, "solver.status", { solver }, { signal });
 }
 
-export async function runFemSolverPreflight<S extends FemSolverKey>(
-  cwd: string,
-  solver: S,
-  modelPath: string,
-  loadPath?: string,
-  solverOptions?: FemSolverOptions,
-  signal?: AbortSignal,
-): Promise<FemSolverPreflight<S>> {
-  return await runFemCoreRequest<FemSolverPreflight<S>>(
-    cwd,
-    "solver.preflight",
-    {
-      solver,
-      modelPath,
-      ...(loadPath ? { loadPath } : {}),
-      ...(solverOptions ? { solverOptions } : {}),
-    },
-    { signal },
-  );
+export async function runFemSolverPreflight<S extends FemSolverKey>(cwd: string, solver: S, modelPath: string, loadPath?: string, solverOptions?: FemSolverOptions, signal?: AbortSignal): Promise<FemSolverPreflight<S>> {
+  return await runFemCoreRequest<FemSolverPreflight<S>>(cwd, "solver.preflight", { solver, modelPath, ...(loadPath ? { loadPath } : {}), ...(solverOptions ? { solverOptions } : {}) }, { signal });
 }
 
-export async function runFemSolverRun<S extends FemSolverKey>(
-  cwd: string,
-  solver: S,
-  modelPath: string,
-  loadPath?: string,
-  solverOptions?: FemSolverOptions,
-  signal?: AbortSignal,
-): Promise<FemSolverRun<S>> {
-  return await runFemCoreRequest<FemSolverRun<S>>(
-    cwd,
-    "solver.run",
-    {
-      solver,
-      modelPath,
-      ...(loadPath ? { loadPath } : {}),
-      ...(solverOptions ? { solverOptions } : {}),
-    },
-    { signal, timeoutMs: DEFAULT_SOLVER_RUN_TIMEOUT_MS },
-  );
+export async function runFemSolverRun<S extends FemSolverKey>(cwd: string, solver: S, modelPath: string, loadPath?: string, solverOptions?: FemSolverOptions, signal?: AbortSignal): Promise<FemSolverRun<S>> {
+  return await runFemCoreRequest<FemSolverRun<S>>(cwd, "solver.run", { solver, modelPath, ...(loadPath ? { loadPath } : {}), ...(solverOptions ? { solverOptions } : {}) }, { signal, timeoutMs: DEFAULT_SOLVER_RUN_TIMEOUT_MS });
 }
