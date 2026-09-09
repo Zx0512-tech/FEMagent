@@ -4,10 +4,12 @@ from collections.abc import Callable
 from typing import Any
 
 from fem_core.analysis_spec.v1 import validate_engineering_analysis_spec_v1
+from fem_core.analysis_spec.v2 import validate_engineering_analysis_spec_v2
 
 _AnalysisSpecValidator = Callable[[Any], dict[str, Any]]
 _VALIDATORS: dict[str, _AnalysisSpecValidator] = {
     "1.0": validate_engineering_analysis_spec_v1,
+    "2.0": validate_engineering_analysis_spec_v2,
 }
 
 
