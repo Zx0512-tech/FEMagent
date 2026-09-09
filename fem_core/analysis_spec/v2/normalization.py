@@ -55,9 +55,38 @@ def _normalize_static(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_modal(spec: dict[str, Any]) -> dict[str, Any]:
+    result_requests: list[dict[str, Any]] = []
+    for request in spec["resultRequests"]:
+        normalized_request: dict[str, Any] = {
+            "requestId": request["requestId"],
+            "quantity": request["quantity"],
+            "mode": request["mode"],
+        }
+        if request["quantity"] == "MODE_SHAPE":
+            normalized_request["target"] = {
+                "type": request["target"]["type"],
+                "id": request["target"]["id"],
+            }
+            normalized_request["component"] = request["component"]
+        result_requests.append(normalized_request)
+
+    return {
+        "schemaVersion": spec["schemaVersion"],
+        "kind": spec["kind"],
+        "modelSpecFingerprint": spec["modelSpecFingerprint"],
+        "analysisType": spec["analysisType"],
+        "units": {},
+        "definition": {"modeCount": spec["definition"]["modeCount"]},
+        "resultRequests": sorted(result_requests, key=lambda request: request["requestId"]),
+    }
+
+
 def normalize_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any]:
     if spec["analysisType"] == "LINEAR_STATIC":
         return _normalize_static(spec)
+    if spec["analysisType"] == "MODAL":
+        return _normalize_modal(spec)
     raise ValueError(f"Unsupported AnalysisSpec V2 normalization profile: {spec['analysisType']!r}")
 
 
