@@ -4,6 +4,8 @@ export type FemAnalysisSpecForceUnit = "N" | "kN";
 export type FemAnalysisSpecStatus = "VALID" | "INVALID";
 export type FemAnalysisSpecIssueSeverity = "ERROR" | "WARNING";
 export type FemAnalysisType = "LINEAR_STATIC";
+export type FemAnalysisTypeV2 = "LINEAR_STATIC" | "MODAL" | "TRANSIENT";
+export type FemAnalysisEmptyUnits = Record<string, never>;
 
 export interface FemAnalysisSpecUnits {
   force: FemAnalysisSpecForceUnit;
@@ -57,20 +59,198 @@ export interface FemAnalysisElementGeneralizedForceRequest extends FemAnalysisRe
   location: "END_I" | "END_J";
 }
 
+/** PR25/PR26 V1 static result-request contract. */
 export type FemAnalysisResultRequest =
   | FemAnalysisNodeDisplacementRequest
   | FemAnalysisNodeReactionForceRequest
   | FemAnalysisNodeReactionMomentRequest
   | FemAnalysisElementGeneralizedForceRequest;
 
-export interface FemEngineeringAnalysisSpecInput {
+export interface FemEngineeringAnalysisSpecV1Input {
   schemaVersion: "1.0";
   kind: "engineering_analysis_spec";
   modelSpecFingerprint: string;
-  analysisType: FemAnalysisType;
+  analysisType: "LINEAR_STATIC";
   units: FemAnalysisSpecUnits;
   loadCases: FemAnalysisLoadCase[];
   resultRequests: FemAnalysisResultRequest[];
+}
+
+export type FemAnalysisV2StaticResultRequest = FemAnalysisResultRequest;
+
+export interface FemEngineeringLinearStaticAnalysisSpecV2Input {
+  schemaVersion: "2.0";
+  kind: "engineering_analysis_spec";
+  modelSpecFingerprint: string;
+  analysisType: "LINEAR_STATIC";
+  units: FemAnalysisSpecUnits;
+  definition: {
+    loadCases: FemAnalysisLoadCase[];
+  };
+  resultRequests: FemAnalysisV2StaticResultRequest[];
+}
+
+interface FemAnalysisModalScalarRequest {
+  requestId: string;
+  quantity: "EIGENVALUE" | "NATURAL_FREQUENCY" | "PERIOD";
+  mode: number;
+}
+
+export interface FemAnalysisModalModeShapeRequest {
+  requestId: string;
+  quantity: "MODE_SHAPE";
+  mode: number;
+  target: { type: "NODE"; id: number };
+  component: "X" | "Y" | "RZ";
+}
+
+export type FemAnalysisModalResultRequest =
+  | FemAnalysisModalScalarRequest
+  | FemAnalysisModalModeShapeRequest;
+
+export interface FemEngineeringModalAnalysisSpecV2Input {
+  schemaVersion: "2.0";
+  kind: "engineering_analysis_spec";
+  modelSpecFingerprint: string;
+  analysisType: "MODAL";
+  units: FemAnalysisEmptyUnits;
+  definition: {
+    modeCount: number;
+  };
+  resultRequests: FemAnalysisModalResultRequest[];
+}
+
+export interface FemAnalysisLoadArtifactRef {
+  path: string;
+  sha256: string;
+}
+
+export interface FemAnalysisTransientTimeDefinition {
+  timeStep: number;
+  duration: number;
+}
+
+export type FemAnalysisTransientDamping =
+  | { type: "NONE" }
+  | { type: "RAYLEIGH"; alphaM: number; betaK: number };
+
+interface FemAnalysisTransientNodeXYRequest {
+  requestId: string;
+  quantity: "DISPLACEMENT" | "VELOCITY" | "REACTION_FORCE";
+  target: { type: "NODE"; id: number };
+  component: "X" | "Y";
+}
+
+interface FemAnalysisTransientReactionMomentRequest {
+  requestId: string;
+  quantity: "REACTION_MOMENT";
+  target: { type: "NODE"; id: number };
+  component: "Z";
+}
+
+interface FemAnalysisTransientGeneralizedForceRequest {
+  requestId: string;
+  quantity: "GENERALIZED_FORCE";
+  target: { type: "ELEMENT"; id: number };
+  component: "N" | "VY" | "MZ";
+  location: "END_I" | "END_J";
+}
+
+export type FemAnalysisTransientCommonResultRequest =
+  | FemAnalysisTransientNodeXYRequest
+  | FemAnalysisTransientReactionMomentRequest
+  | FemAnalysisTransientGeneralizedForceRequest;
+
+export interface FemAnalysisTransientNodalAccelerationRequest {
+  requestId: string;
+  quantity: "ACCELERATION";
+  target: { type: "NODE"; id: number };
+  component: "X" | "Y";
+}
+
+export interface FemAnalysisTransientBaseAccelerationRequest {
+  requestId: string;
+  quantity: "RELATIVE_ACCELERATION" | "ABSOLUTE_ACCELERATION";
+  target: { type: "NODE"; id: number };
+  component: "X" | "Y";
+}
+
+export type FemAnalysisTransientNodalResultRequest =
+  | FemAnalysisTransientCommonResultRequest
+  | FemAnalysisTransientNodalAccelerationRequest;
+
+export type FemAnalysisTransientBaseResultRequest =
+  | FemAnalysisTransientCommonResultRequest
+  | FemAnalysisTransientBaseAccelerationRequest;
+
+export type FemAnalysisTransientResultRequest =
+  | FemAnalysisTransientNodalResultRequest
+  | FemAnalysisTransientBaseResultRequest;
+
+export interface FemEngineeringNodalTransientAnalysisSpecV2Input {
+  schemaVersion: "2.0";
+  kind: "engineering_analysis_spec";
+  modelSpecFingerprint: string;
+  analysisType: "TRANSIENT";
+  units: FemAnalysisSpecUnits;
+  definition: {
+    time: FemAnalysisTransientTimeDefinition;
+    damping: FemAnalysisTransientDamping;
+    excitation: {
+      type: "NODAL_TIME_HISTORY";
+      nodeId: number;
+      component: "X" | "Y";
+      quantity: "FORCE";
+      loadArtifact: FemAnalysisLoadArtifactRef;
+    };
+  };
+  resultRequests: FemAnalysisTransientNodalResultRequest[];
+}
+
+export interface FemEngineeringBaseTransientAnalysisSpecV2Input {
+  schemaVersion: "2.0";
+  kind: "engineering_analysis_spec";
+  modelSpecFingerprint: string;
+  analysisType: "TRANSIENT";
+  units: FemAnalysisEmptyUnits;
+  definition: {
+    time: FemAnalysisTransientTimeDefinition;
+    damping: FemAnalysisTransientDamping;
+    excitation: {
+      type: "UNIFORM_BASE_EXCITATION";
+      component: "X" | "Y";
+      quantity: "ACCELERATION";
+      loadArtifact: FemAnalysisLoadArtifactRef;
+    };
+  };
+  resultRequests: FemAnalysisTransientBaseResultRequest[];
+}
+
+export type FemEngineeringTransientAnalysisSpecV2Input =
+  | FemEngineeringNodalTransientAnalysisSpecV2Input
+  | FemEngineeringBaseTransientAnalysisSpecV2Input;
+
+export type FemEngineeringAnalysisSpecV2Input =
+  | FemEngineeringLinearStaticAnalysisSpecV2Input
+  | FemEngineeringModalAnalysisSpecV2Input
+  | FemEngineeringTransientAnalysisSpecV2Input;
+
+export type FemEngineeringAnalysisSpecInput =
+  | FemEngineeringAnalysisSpecV1Input
+  | FemEngineeringAnalysisSpecV2Input;
+
+export interface FemAnalysisSpecMigrationV1ToV2 {
+  schema: "FEMAGENT_ANALYSIS_SPEC_MIGRATION_V1_TO_V2";
+  status: "MIGRATED" | "INVALID_SOURCE" | "UNSUPPORTED_SOURCE";
+  source: {
+    schemaVersion: string | null;
+    analysisSpecFingerprint: string | null;
+  };
+  target: {
+    schemaVersion: "2.0";
+    analysisSpecFingerprint: string;
+  } | null;
+  candidateSpec: FemEngineeringLinearStaticAnalysisSpecV2Input | null;
 }
 
 export interface FemAnalysisSpecIssue {
@@ -195,7 +375,7 @@ export interface FemOpenSeesAnalysisRenderedResult {
     readinessProfile: "OPENSEES_FRAME_2D_LINEAR_STATIC_V1";
     units: FemEngineeringModelSpecInput["units"];
     normalizedModelSpec: FemEngineeringModelSpecInput;
-    normalizedAnalysisSpec: FemEngineeringAnalysisSpecInput;
+    normalizedAnalysisSpec: FemEngineeringAnalysisSpecV1Input;
   };
   loadCaseId: string;
   responseMappings: FemAnalysisResponseMapping[];

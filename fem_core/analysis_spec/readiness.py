@@ -120,6 +120,27 @@ def evaluate_engineering_analysis_readiness(
             "Valid Engineering Specs must provide deterministic fingerprints",
         )
 
+    if normalized_analysis.get("schemaVersion") != "1.0":
+        return {
+            "schema": READINESS_SCHEMA,
+            "status": "NOT_READY",
+            "profile": READINESS_PROFILE,
+            "modelSpecFingerprint": model_fingerprint,
+            "analysisSpecFingerprint": analysis_fingerprint,
+            "validation": {
+                "modelSpec": _compact_validation(model_validation),
+                "analysisSpec": _compact_validation(analysis_validation),
+            },
+            "checks": _skipped_checks(),
+            "issues": [
+                _issue(
+                    "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION",
+                    "analysisSpec.schemaVersion",
+                    "The PR26 OpenSees readiness profile accepts only AnalysisSpec schemaVersion 1.0",
+                )
+            ],
+        }
+
     issues: list[dict[str, str]] = []
 
     model_readiness = evaluate_engineering_model_readiness(normalized_model)

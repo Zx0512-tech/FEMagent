@@ -5,7 +5,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from fem_core.analysis_spec import validate_engineering_analysis_spec
+from fem_core.analysis_spec import (
+    migrate_engineering_analysis_spec_v1_to_v2,
+    validate_engineering_analysis_spec,
+)
 from fem_core.analysis_spec.readiness import evaluate_engineering_analysis_readiness
 from fem_core.model_spec.validator import validate_engineering_model_spec
 
@@ -104,6 +107,20 @@ def test_bound_valid_specs_are_ready_with_proven_response_mappings() -> None:
     assert mappings["R_ELE_MZ"]["access"] == "ELEMENT_LOCAL_FORCE"
     assert mappings["R_ELE_MZ"]["index"] == 5
     assert mappings["R_ELE_MZ"]["unit"] == "N*m"
+
+
+def test_valid_v2_is_not_admitted_to_pr26_v1_readiness() -> None:
+    model = _model_spec()
+    migration = migrate_engineering_analysis_spec_v1_to_v2(_bound_analysis_spec(model))
+    v2 = migration["candidateSpec"]
+    assert isinstance(v2, dict)
+    assert validate_engineering_analysis_spec(v2)["status"] == "VALID"
+
+    report = evaluate_engineering_analysis_readiness(model, v2)
+
+    assert report["status"] == "NOT_READY"
+    assert "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION" in _issue_codes(report)
+    assert all(check["status"] == "SKIPPED" for check in report["checks"].values())
 
 
 def test_invalid_model_spec_produces_invalid_spec_and_skips_joint_checks() -> None:

@@ -22,6 +22,15 @@ def request(spec: object) -> dict:
     }
 
 
+def migration_request(spec: object) -> dict:
+    return {
+        "protocol": BRIDGE_PROTOCOL,
+        "requestId": "req-analysis-spec-migration",
+        "command": "analysisSpec.migrateV1ToV2",
+        "payload": {"spec": spec},
+    }
+
+
 def test_bridge_validates_analysis_spec_without_solver_execution(tmp_path: Path) -> None:
     response = handle_request(request(load_spec()), workspace=tmp_path)
 
@@ -49,3 +58,21 @@ def test_bridge_rejects_non_object_analysis_spec_payload(tmp_path: Path) -> None
 
     assert response["ok"] is False
     assert response["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_bridge_migrates_v1_to_v2_without_workspace_writes(tmp_path: Path) -> None:
+    response = handle_request(migration_request(load_spec()), workspace=tmp_path)
+
+    assert response["ok"] is True
+    assert response["result"]["schema"] == "FEMAGENT_ANALYSIS_SPEC_MIGRATION_V1_TO_V2"
+    assert response["result"]["status"] == "MIGRATED"
+    assert response["result"]["candidateSpec"]["schemaVersion"] == "2.0"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_bridge_rejects_non_object_migration_spec_payload(tmp_path: Path) -> None:
+    response = handle_request(migration_request("not-an-object"), workspace=tmp_path)
+
+    assert response["ok"] is False
+    assert response["error"]["code"] == "INVALID_ARGUMENT"
+    assert list(tmp_path.iterdir()) == []
