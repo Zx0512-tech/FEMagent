@@ -9,6 +9,7 @@ from fem_core.analysis_spec.v2.normalization import (
     normalize_analysis_spec_v2,
 )
 from fem_core.analysis_spec.v2.static import validate_v2_static
+from fem_core.analysis_spec.v2.transient import validate_v2_transient
 
 VALIDATION_SCHEMA = "FEMAGENT_ANALYSIS_SPEC_VALIDATION_V1"
 V2_KEYS = {
@@ -68,6 +69,8 @@ def validate_engineering_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any
         validate_v2_static(spec, issues)
     elif analysis_type == "MODAL":
         validate_v2_modal(spec, issues)
+    elif analysis_type == "TRANSIENT":
+        validate_v2_transient(spec, issues)
     else:
         issues.append(
             issue(
