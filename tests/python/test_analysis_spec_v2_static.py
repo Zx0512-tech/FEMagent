@@ -54,7 +54,7 @@ def test_v2_static_shared_envelope_fails_closed() -> None:
     )
 
     wrong_discriminator = load_v2_static()
-    wrong_discriminator["analysisType"] = "TRANSIENT"
+    wrong_discriminator["analysisType"] = "BUCKLING"
     assert_invalid(
         validate_engineering_analysis_spec(wrong_discriminator),
         "ANALYSIS_SPEC_UNSUPPORTED_ANALYSIS_TYPE",
