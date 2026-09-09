@@ -11,8 +11,10 @@ test("one high-level OpenSees analysis preparation tool owns CHECK and RENDER", 
 
   assert.match(extension, /name:\s*"fem_analysis_prepare_opensees"/);
   assert.match(extension, /Type\.Union\(\[Type\.Literal\("CHECK"\), Type\.Literal\("RENDER"\)\]\)/s);
+  assert.match(extension, /analysisSpec:\s*analysisSpecV1Schema/);
   assert.match(extension, /runFemAnalysisReadiness/);
   assert.match(extension, /runFemAnalysisRenderOpenSees/);
+  assert.match(extension, /V1 remains limited/i);
   assert.doesNotMatch(extension, /runFemSolverRun/);
   assert.doesNotMatch(extension, /outputPath/);
   assert.doesNotMatch(extension, /name:\s*"fem_analysis_readiness"/);
@@ -28,6 +30,7 @@ test("analysis preparation guidance preserves readiness/render/execution boundar
   assert.match(extension, /READY.*not.*execution success/is);
   assert.match(extension, /RENDERED.*not.*execution success/is);
   assert.match(extension, /do not.*mutate.*engineering facts.*force readiness/is);
+  assert.match(extension, /schemaVersion 1\.0|V1.*only/i);
 });
 
 test("agent entrypoint exposes the single high-level Analysis preparation tool", async () => {
@@ -36,4 +39,5 @@ test("agent entrypoint exposes the single high-level Analysis preparation tool",
   assert.match(main, /"fem_analysis_prepare_opensees"/);
   assert.doesNotMatch(main, /"fem_analysis_readiness"/);
   assert.doesNotMatch(main, /"fem_analysis_render_opensees"/);
+  assert.doesNotMatch(main, /fem_analysis_spec_migrate/i);
 });
