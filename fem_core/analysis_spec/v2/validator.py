@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fem_core.analysis_spec.common import SHA256_RE, issue, validate_exact_keys
+from fem_core.analysis_spec.v2.modal import validate_v2_modal
 from fem_core.analysis_spec.v2.normalization import (
     fingerprint_analysis_spec_v2,
     normalize_analysis_spec_v2,
@@ -65,6 +66,8 @@ def validate_engineering_analysis_spec_v2(spec: dict[str, Any]) -> dict[str, Any
     analysis_type = spec.get("analysisType")
     if analysis_type == "LINEAR_STATIC":
         validate_v2_static(spec, issues)
+    elif analysis_type == "MODAL":
+        validate_v2_modal(spec, issues)
     else:
         issues.append(
             issue(
