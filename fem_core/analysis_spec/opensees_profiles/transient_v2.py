@@ -153,7 +153,7 @@ def _time_check(
             )
         )
     ratio = float(time_definition["duration"]) / float(time_definition["timeStep"])
-    step_count = int(round(ratio))
+    step_count = round(ratio)
     integral_steps = step_count > 0 and math.isclose(ratio, step_count, rel_tol=1e-9, abs_tol=1e-12)
     if not integral_steps and not any(item["code"] == "ANALYSIS_READINESS_DURATION_MISMATCH" for item in issues):
         issues.append(
