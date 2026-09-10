@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fem_core.analysis_spec.opensees_profiles import OPENSEES_STATIC_V2
+from fem_core.analysis_spec.opensees_profiles import OPENSEES_MODAL_V2, OPENSEES_STATIC_V2
+from fem_core.analysis_spec.opensees_profiles.modal_v2 import build_modal_response_plan
 from fem_core.analysis_spec.opensees_renderer import (
     build_structural_response_plan,
     render_opensees_linear_static_analysis,
@@ -90,6 +91,25 @@ def build_opensees_linear_static_v2_source(
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def build_opensees_modal_v2_source(
+    normalized_model_spec: dict[str, Any],
+    mode_count: int,
+) -> str:
+    if not isinstance(mode_count, int) or isinstance(mode_count, bool) or mode_count <= 0:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "V2 modal compiler requires a positive integer modeCount",
+        )
+    source = build_opensees_frame_2d_model_source(normalized_model_spec)
+    return "\n".join(
+        [
+            source.rstrip("\n"),
+            "",
+            f"_femagent_eigenvalues = ops.eigen({mode_count})",
+        ]
+    ) + "\n"
 
 
 def _render_fingerprint(
@@ -274,21 +294,30 @@ def render_opensees_analysis(
         )
 
     profile = readiness.get("profile")
-    if profile != OPENSEES_STATIC_V2:
+    if profile == OPENSEES_STATIC_V2:
+        definition = normalized_analysis["definition"]
+        analysis_source = build_opensees_linear_static_v2_source(
+            normalized_model,
+            definition["loadCases"],
+        )
+        response_plan = build_structural_response_plan(normalized_analysis)
+    elif profile == OPENSEES_MODAL_V2:
+        definition = normalized_analysis["definition"]
+        analysis_source = build_opensees_modal_v2_source(
+            normalized_model,
+            int(definition["modeCount"]),
+        )
+        response_plan = build_modal_response_plan(normalized_analysis)
+    else:
         raise FemCoreError(
             "OPENSEES_ANALYSIS_RENDER_UNSUPPORTED_PROFILE",
             "Selected V2 OpenSees readiness profile has no renderer yet",
             details={"profile": profile},
         )
-    definition = normalized_analysis["definition"]
-    analysis_source = build_opensees_linear_static_v2_source(
-        normalized_model,
-        definition["loadCases"],
-    )
-    response_plan = build_structural_response_plan(normalized_analysis)
+
     return _publish_v2_bundle(
         workspace=workspace,
-        renderer_name=OPENSEES_STATIC_V2,
+        renderer_name=str(profile),
         readiness=readiness,
         normalized_model=normalized_model,
         normalized_analysis=normalized_analysis,
@@ -303,5 +332,6 @@ __all__ = [
     "RENDERER_VERSION_V2",
     "RENDER_SCHEMA_V2",
     "build_opensees_linear_static_v2_source",
+    "build_opensees_modal_v2_source",
     "render_opensees_analysis",
 ]
