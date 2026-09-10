@@ -77,13 +77,13 @@ def test_selects_legacy_v1_static_profile() -> None:
     assert selector(validation["normalizedSpec"]) == "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
 
 
-def test_v2_readiness_dispatches_to_selected_profile_without_admission() -> None:
+def test_unimplemented_v2_profile_remains_a_selected_not_ready_shell() -> None:
     model = json.loads(MODEL_FIXTURE.read_text(encoding="utf-8"))
     model_validation = validate_engineering_model_spec(model)
     assert model_validation["status"] == "VALID"
 
     analysis = json.loads(
-        (ANALYSIS_FIXTURE_DIR / "simple-linear-static-v2.json").read_text(encoding="utf-8")
+        (ANALYSIS_FIXTURE_DIR / "simple-modal-v2.json").read_text(encoding="utf-8")
     )
     analysis["modelSpecFingerprint"] = model_validation["modelSpecFingerprint"]
     validation = validate_engineering_analysis_spec(analysis)
@@ -93,5 +93,5 @@ def test_v2_readiness_dispatches_to_selected_profile_without_admission() -> None
 
     assert report["schema"] == "FEMAGENT_ANALYSIS_READINESS_V2"
     assert report["status"] == "NOT_READY"
-    assert report["profile"] == "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"
+    assert report["profile"] == "OPENSEES_FRAME_2D_MODAL_V2"
     assert all(check["status"] == "SKIPPED" for check in report["checks"].values())
