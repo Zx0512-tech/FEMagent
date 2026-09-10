@@ -157,13 +157,29 @@ schemaVersion=2.0 + TRANSIENT + UNIFORM_BASE_EXCITATION
 → OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2
 ```
 
-Unsupported combinations fail closed with a stable readiness issue. Routing must happen only after intrinsic ModelSpec/AnalysisSpec validation succeeds.
+Unsupported combinations fail closed with `ANALYSIS_READINESS_UNSUPPORTED_PROFILE`. Routing happens only after intrinsic ModelSpec/AnalysisSpec validation succeeds.
 
-## 6. Common readiness contract
+## 6. Protocol identities and common readiness contract
 
-Public readiness schema remains versioned and deterministic. PR28 may extend checks while preserving existing V1 fields and semantics.
+Existing V1 execution protocol identities remain unchanged:
 
-Every supported V2 readiness profile must verify:
+```text
+readiness schema     = FEMAGENT_ANALYSIS_READINESS_V1
+render schema        = FEMAGENT_OPENSEES_ANALYSIS_RENDER_V1
+verification schema  = FEMAGENT_GENERATED_ANALYSIS_VERIFICATION_V1
+```
+
+All PR28 V2 execution profiles use:
+
+```text
+readiness schema     = FEMAGENT_ANALYSIS_READINESS_V2
+render schema        = FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2
+verification schema  = FEMAGENT_GENERATED_ANALYSIS_VERIFICATION_V2
+```
+
+The public bridge may expose a union of V1/V2 reports, but it must not relabel a V1 report as V2 or vice versa.
+
+Every supported V2 readiness profile verifies:
 
 - ModelSpec intrinsic validity;
 - AnalysisSpec intrinsic validity;
@@ -222,6 +238,8 @@ Modal readiness verifies:
 - every requested MODE_SHAPE target node exists;
 - every requested MODE_SHAPE component X/Y/RZ has a proven OpenSees DOF mapping.
 
+A positive-mass free translational DOF is counted only when the corresponding `mUX`/`mUY` value is positive and that node/DOF is not constrained in the ModelSpec. The count is a conservative readiness upper bound, not a claim about the numerical rank of the assembled matrices.
+
 Readiness does not attempt to prove matrix nonsingularity, repeated-eigenvalue behavior, eigensolver convergence, or mode-shape normalization. Those are solver outcomes.
 
 Stable modal readiness issue families include:
@@ -244,10 +262,13 @@ It must verify:
 - file conforms to controlled `FEMAGENT_LOAD_CSV_V1` long-form structure;
 - exactly one excitation channel matches the AnalysisSpec excitation;
 - time is strictly increasing and uniformly spaced;
+- canonical artifact start time is exactly `0 s` within deterministic numeric tolerance;
 - artifact sampling interval matches AnalysisSpec `time.timeStep` after deterministic time-unit conversion;
-- artifact end time matches AnalysisSpec `time.duration` after deterministic time-unit conversion;
+- artifact final time matches AnalysisSpec `time.duration` after deterministic time-unit conversion;
 - target/component/quantity/application semantics match the AnalysisSpec;
 - response targets and response mappings are executable by the selected profile.
+
+PR28 therefore defines `duration` as elapsed analysis time from zero, not an arbitrary absolute artifact timestamp. A non-zero-start canonical transient artifact is `NOT_READY` rather than silently shifted.
 
 Transient readiness never silently rewrites the AnalysisSpec SHA or path.
 
@@ -257,6 +278,7 @@ Stable artifact issue families include:
 - `ANALYSIS_READINESS_LOAD_ARTIFACT_HASH_MISMATCH`
 - `ANALYSIS_READINESS_LOAD_ARTIFACT_INVALID`
 - `ANALYSIS_READINESS_LOAD_CHANNEL_MISMATCH`
+- `ANALYSIS_READINESS_TIME_ORIGIN_MISMATCH`
 - `ANALYSIS_READINESS_TIME_STEP_MISMATCH`
 - `ANALYSIS_READINESS_DURATION_MISMATCH`
 
@@ -305,15 +327,22 @@ No renderer may bypass this readiness outcome.
 
 ## 12. Deterministic unit conversions
 
-PR28 allows deterministic execution-time conversion where the engineering meaning is fully known.
+PR28 allows deterministic execution-time conversion where engineering meaning is fully known. Conversions are performed by `fem_core`, not the LLM.
 
-Conversions are performed by `fem_core`, not the LLM.
+Let `secondsPerModelTimeUnit` be:
+
+```text
+s  → 1.0
+ms → 0.001
+```
 
 Required conversions include:
 
 - canonical force N → ModelSpec force unit N/kN;
 - canonical time s → ModelSpec time unit s/ms;
 - canonical acceleration m/s² → ModelSpec `length/time²`.
+
+For acceleration, the numeric factor is determined entirely by ModelSpec length/time units; for example `1 m/s² = 0.001 mm/ms²`.
 
 Every conversion record includes at least:
 
@@ -359,7 +388,19 @@ The standard generated-analysis bundle remains:
 └── analysis_manifest.json
 ```
 
-For Modal, `response_plan.json` carries a modal response contract rather than a structural time-series contract.
+For V2 Static/Transient, `response_plan.json` is:
+
+```text
+schemaVersion = 1.0
+kind          = structural_response_plan
+```
+
+For Modal, `response_plan.json` is:
+
+```text
+schemaVersion = 1.0
+kind          = modal_response_plan
+```
 
 ## 14. Renderer identities
 
@@ -375,7 +416,7 @@ OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2
 
 V1 renderer version remains unchanged.
 
-V2 renderer version starts at `2.0`.
+V2 renderer version is exactly `2.0`.
 
 The manifest records both renderer name and renderer version.
 
@@ -402,13 +443,11 @@ integrator  = LoadControl(1.0)
 analysis    = Static
 ```
 
-## 16. MODAL renderer
+## 16. MODAL renderer and result units
 
 The modal renderer deterministically emits the validated ModelSpec followed by a fixed modal execution configuration.
 
-The generated source requests exactly `definition.modeCount` eigenvalues from OpenSees.
-
-PR28 does not expose eigensolver selection, spectral shift, or normalization controls.
+The generated source requests exactly `definition.modeCount` eigenvalues from OpenSees. PR28 does not expose eigensolver selection, spectral shift, or normalization controls.
 
 Numerical modal results are not computed by the renderer.
 
@@ -420,6 +459,16 @@ The modal response contract carries the requested:
 - `MODE_SHAPE`.
 
 The worker executes real OpenSees eigenanalysis and extracts requested mode-shape components using `ops.nodeEigenvector(...)`.
+
+For a solver eigenvalue `lambda` in native ModelSpec time units:
+
+```text
+omegaNative = sqrt(lambda)                         [1 / model-time-unit]
+period      = 2*pi / omegaNative                   [model-time-unit]
+frequencyHz = omegaNative / (2*pi*secondsPerModelTimeUnit)
+```
+
+Thus a ModelSpec using milliseconds is converted deterministically to Hz without changing the native eigenvalue identity.
 
 ## 17. TRANSIENT renderer
 
@@ -434,7 +483,7 @@ integrator  = Newmark(0.5, 0.25)
 analysis    = Transient
 ```
 
-The renderer emits one `ops.analyze(1, dt)` step per required time increment.
+The renderer emits one `ops.analyze(1, dt)` step per required time increment, where `dt` is expressed in ModelSpec time units.
 
 Damping behavior:
 
@@ -446,7 +495,7 @@ RAYLEIGH(alphaM, betaK)
 → ops.rayleigh(alphaM, betaK, 0.0, 0.0)
 ```
 
-For PR28, `betaK` is explicitly defined as the OpenSees current-stiffness Rayleigh coefficient. PR28 does not reinterpret it as initial- or committed-stiffness damping.
+For PR28, `betaK` is explicitly the OpenSees current-stiffness Rayleigh coefficient. PR28 does not reinterpret it as initial- or committed-stiffness damping.
 
 ### 17.1 Nodal force renderer
 
@@ -480,6 +529,10 @@ Existing mappings remain:
 
 Every mapping records reference frame and unit.
 
+For nodal-force transient acceleration, reference frame is `GLOBAL`.
+
+For uniform-base relative displacement/velocity/acceleration, reference frame is `RELATIVE_TO_BASE`.
+
 For transient result series, abscissa semantic is `TIME` and abscissa unit is the bound ModelSpec time unit.
 
 ## 19. Worker execution modes
@@ -489,7 +542,7 @@ Existing worker modes remain:
 - `build-inspect`;
 - `script-run`.
 
-PR28 adds:
+PR28 adds exactly:
 
 - `modal-run`.
 
@@ -517,7 +570,7 @@ Each channel preserves:
 - optional location;
 - unit;
 - referenceFrame;
-- time abscissa for transient;
+- abscissa semantic/unit;
 - numerical values.
 
 Static may continue to produce one sampled solver-state value where appropriate; Transient produces a time series.
@@ -533,9 +586,9 @@ kind          = modal_result_set
 
 The artifact contains the solver-returned eigenvalue for each solved mode and deterministic derived presentations:
 
-- `eigenvalue`;
-- `naturalFrequencyHz`;
-- `period` in ModelSpec time units.
+- `eigenvalue` with unit `1/<model-time-unit>^2`;
+- `naturalFrequencyHz` with unit `Hz`;
+- `period` with the ModelSpec time unit.
 
 Requested mode-shape values are stored by request identity and include:
 
@@ -552,9 +605,15 @@ Frequency and period are derived from actual solver eigenvalues in the worker/re
 
 ## 22. Generated-analysis manifest V2
 
-V2 generated-analysis manifests record at least:
+Every V2 generated-analysis manifest has:
 
-- schema/status;
+```text
+schema  = FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2
+status  = RENDERED
+```
+
+and records at least:
+
 - renderer name/version;
 - readiness profile;
 - normalized ModelSpec;
@@ -579,6 +638,13 @@ Therefore:
 - rendered execution identity changes when the locator path changes, because the concrete executable bundle provenance changed.
 
 ## 23. Generated-analysis verification
+
+A successful V2 verification report has:
+
+```text
+schema = FEMAGENT_GENERATED_ANALYSIS_VERIFICATION_V2
+status = VERIFIED
+```
 
 Before solver execution, verifier must recompute and prove:
 
@@ -652,7 +718,7 @@ No unsupported modal metric is synthesized.
 
 PR28 widens the existing TypeScript preparation input from `FemEngineeringAnalysisSpecV1Input` to the PR27 union `FemEngineeringAnalysisSpecInput`.
 
-Readiness and render result types must represent the V1 and V2 profile names without collapsing them into untyped strings where a discriminated union is practical.
+Readiness and render result types represent the V1/V2 protocol schemas and exact profile names with discriminated unions where practical.
 
 No new migration or profile-specific Agent tool is registered.
 
@@ -696,7 +762,7 @@ Test:
 - verified bundle;
 - real OpenSees eigenanalysis;
 - finite positive eigenvalues for a stable golden model;
-- frequency/period consistency with eigenvalue;
+- frequency/period consistency with eigenvalue for both `s` and `ms` ModelSpec time units;
 - requested mode-shape extraction;
 - mode-shape semantic/unit contract.
 
@@ -709,6 +775,7 @@ Test:
 - SHA mismatch;
 - malformed canonical load;
 - multi-channel mismatch;
+- non-zero time origin;
 - nonuniform time step;
 - timeStep mismatch;
 - duration mismatch;
@@ -735,7 +802,7 @@ Test:
 - absolute acceleration NOT_READY with stable issue code;
 - real OpenSees execution;
 - finite response time series;
-- correct reference-frame semantics.
+- correct `RELATIVE_TO_BASE` reference-frame semantics.
 
 ### 28.7 Tool surface and boundary
 
