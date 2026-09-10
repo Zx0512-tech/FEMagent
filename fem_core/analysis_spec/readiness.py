@@ -7,10 +7,13 @@ from fem_core.analysis_spec.opensees_profiles import (
     OPENSEES_MODAL_V2,
     OPENSEES_STATIC_V1,
     OPENSEES_STATIC_V2,
+    OPENSEES_TRANSIENT_BASE_V2,
+    OPENSEES_TRANSIENT_NODAL_V2,
     select_opensees_analysis_profile,
 )
 from fem_core.analysis_spec.opensees_profiles.modal_v2 import evaluate_modal_v2_readiness
 from fem_core.analysis_spec.opensees_profiles.static_v2 import evaluate_static_v2_readiness
+from fem_core.analysis_spec.opensees_profiles.transient_v2 import evaluate_transient_v2_readiness
 from fem_core.analysis_spec.validator import validate_engineering_analysis_spec
 from fem_core.errors import FemCoreError
 from fem_core.model_spec.readiness import evaluate_engineering_model_readiness
@@ -115,9 +118,9 @@ def _pending_v2_result(
         "checks": _skipped_checks(),
         "issues": [
             _issue(
-                "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION",
-                "analysisSpec.schemaVersion",
-                "The selected PR28 V2 OpenSees readiness profile is not admitted yet",
+                "ANALYSIS_READINESS_UNSUPPORTED_PROFILE",
+                "analysisSpec",
+                "The selected OpenSees analysis profile is not supported by readiness",
             )
         ],
     }
@@ -175,6 +178,14 @@ def evaluate_engineering_analysis_readiness(
             analysis_validation=analysis_validation,
             normalized_model=normalized_model,
             normalized_analysis=normalized_analysis,
+        )
+    if profile in {OPENSEES_TRANSIENT_NODAL_V2, OPENSEES_TRANSIENT_BASE_V2}:
+        return evaluate_transient_v2_readiness(
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            normalized_model=normalized_model,
+            normalized_analysis=normalized_analysis,
+            workspace=workspace,
         )
     if profile != READINESS_PROFILE:
         return _pending_v2_result(
