@@ -83,7 +83,7 @@ def test_unimplemented_v2_profile_remains_a_selected_not_ready_shell() -> None:
     assert model_validation["status"] == "VALID"
 
     analysis = json.loads(
-        (ANALYSIS_FIXTURE_DIR / "simple-modal-v2.json").read_text(encoding="utf-8")
+        (ANALYSIS_FIXTURE_DIR / "simple-transient-nodal-v2.json").read_text(encoding="utf-8")
     )
     analysis["modelSpecFingerprint"] = model_validation["modelSpecFingerprint"]
     validation = validate_engineering_analysis_spec(analysis)
@@ -93,5 +93,5 @@ def test_unimplemented_v2_profile_remains_a_selected_not_ready_shell() -> None:
 
     assert report["schema"] == "FEMAGENT_ANALYSIS_READINESS_V2"
     assert report["status"] == "NOT_READY"
-    assert report["profile"] == "OPENSEES_FRAME_2D_MODAL_V2"
+    assert report["profile"] == "OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2"
     assert all(check["status"] == "SKIPPED" for check in report["checks"].values())
