@@ -21,13 +21,17 @@
 - V2 profiles are exactly `OPENSEES_FRAME_2D_LINEAR_STATIC_V2`, `OPENSEES_FRAME_2D_MODAL_V2`, `OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2`, and `OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2`.
 - `VALID` never implies `READY`, `RENDERED`, `VERIFIED`, or `COMPLETED`.
 - `ABSOLUTE_ACCELERATION` under `UNIFORM_BASE_EXCITATION` remains `NOT_READY` with `ANALYSIS_READINESS_ABSOLUTE_ACCELERATION_MAPPING_UNPROVEN`.
-- Controlled transient artifacts must begin at zero seconds, use a uniform time step, and end at AnalysisSpec `duration` after deterministic unit conversion.
+- Controlled transient artifacts begin at zero seconds, use a uniform time step, and end at AnalysisSpec `duration` after deterministic unit conversion.
 - `NODAL_TIME_HISTORY` and `UNIFORM_BASE_EXCITATION` both execute in PR28.
-- Transient integration is fixed to `Plain` constraints, `Plain` numberer, `BandGeneral` system, `Linear` algorithm, `Newmark(0.5, 0.25)` integrator.
+- `NODAL_TIME_HISTORY` requires `analysisSpec.units.force == modelSpec.units.force`; canonical artifact N values are converted to that shared force unit.
+- Transient integration is fixed to `Plain` constraints, `Plain` numberer, `BandGeneral` system, `Linear` algorithm, and `Newmark(0.5, 0.25)` integrator.
 - `RAYLEIGH` maps exactly to `ops.rayleigh(alphaM, betaK, 0.0, 0.0)`; no damping-ratio inference or default damping.
+- Modal renderer emits exactly one `ops.eigen(modeCount)` call; the real numerical solve occurs only in `modal-run`, never in build inspection.
 - Modal worker results come from real `ops.eigen(...)` and `ops.nodeEigenvector(...)`; renderers never compute numerical modal results.
+- Transient structural response samples are recorded only after each successful `ops.analyze(1, dt)` call. No synthetic `t=0` result sample is inserted. For duration `T` and step `dt`, the series has `T/dt` samples with abscissa `dt, 2dt, ..., T` when the ratio is integral.
 - Generated-analysis verification is mandatory before solver execution.
-- Keep the existing Agent tool names; do not add profile-specific LLM-visible tools.
+- Keep existing Agent tool names; do not add profile-specific LLM-visible tools.
+- OpenSees generated-bundle solver options remain exactly `{responsePlanPath, analysisManifestPath}`; execution mode is derived from verified bundle context, never user-selected.
 - Do not modify ANSYS execution, natural-language Analysis Completion, Controlled Repair, nonlinear analysis, optimization, or Semantic Role inference in PR28.
 - Standard final verification: `pnpm typecheck`, `pnpm test:ts`, `python -m pytest`, `python -m ruff check fem_core tests/python examples/ansys/golden_path`, OpenSees/ANSYS smoke checks, and `pnpm fem:health`.
 
@@ -36,14 +40,14 @@
 New focused modules:
 
 - `fem_core/analysis_spec/opensees_profiles/__init__.py` — profile constants and public profile-selection exports.
-- `fem_core/analysis_spec/opensees_profiles/registry.py` — exact V1/V2 AnalysisSpec → OpenSees profile routing.
+- `fem_core/analysis_spec/opensees_profiles/registry.py` — exact validated AnalysisSpec → OpenSees profile routing.
 - `fem_core/analysis_spec/opensees_profiles/common.py` — shared V2 readiness target/reaction/mapping/unit helpers.
 - `fem_core/analysis_spec/opensees_profiles/static_v2.py` — V2 static readiness and compilation adapters.
 - `fem_core/analysis_spec/opensees_profiles/modal_v2.py` — modal readiness, modal response plan, and source builder.
 - `fem_core/analysis_spec/opensees_profiles/transient_v2.py` — transient readiness, artifact evidence, conversions, and source builders.
-- `fem_core/analysis_spec/transient_artifact.py` — strict one-channel `FEMAGENT_LOAD_CSV_V1` parser for PR28 readiness.
+- `fem_core/analysis_spec/transient_artifact.py` — strict one-channel `FEMAGENT_LOAD_CSV_V1` reader for PR28 readiness.
 - `fem_core/analysis_spec/opensees_renderer_v2.py` — shared V2 generated-analysis publisher and render fingerprinting.
-- `fem_core/modal_results.py` — canonical `modal_result_set` validation/query helpers.
+- `fem_core/modal_results.py` — canonical `modal_result_set` construction/validation/query helpers.
 
 Existing modules modified only where their current responsibility already applies:
 
@@ -51,8 +55,8 @@ Existing modules modified only where their current responsibility already applie
 - `fem_core/analysis_spec/opensees_renderer.py` — expose reusable V1 static compiler primitives without changing V1 output.
 - `fem_core/analysis_spec/__init__.py` — export one version-aware OpenSees render entry point while preserving legacy export.
 - `fem_core/opensees_response_mapping.py` — add proven transient node velocity/acceleration mappings and units.
-- `fem_core/solvers/opensees_generated_analysis.py` — V1/V2 verification router.
-- `fem_core/solvers/opensees_worker.py` — transient sampling access and modal execution mode.
+- `fem_core/solvers/opensees_generated_analysis.py` — V1/V2 verification router and trusted V2 contexts.
+- `fem_core/solvers/opensees_worker.py` — build-only eigen interception, transient sampling access, modal execution mode.
 - `fem_core/solvers/opensees_python.py` — verified V2 bundle admission and execution-mode routing.
 - `fem_core/result_intelligence.py` — canonical modal result inspection/query and transient structural-response semantics.
 - `fem_core/bridge.py` — pass workspace to readiness and use version-aware renderer.
@@ -68,44 +72,44 @@ Existing modules modified only where their current responsibility already applie
 - Create: `fem_core/analysis_spec/opensees_profiles/__init__.py`
 - Create: `fem_core/analysis_spec/opensees_profiles/registry.py`
 - Modify: `fem_core/analysis_spec/readiness.py`
-- Test: `tests/python/test_analysis_profile_registry.py`
+- Create: `tests/python/test_analysis_profile_registry.py`
 - Test: `tests/python/test_analysis_readiness.py`
 
 **Interfaces:**
 - Produces: `select_opensees_analysis_profile(normalized_analysis_spec: dict[str, Any]) -> str`.
-- Produces: `evaluate_engineering_analysis_readiness(model_spec, analysis_spec, *, workspace: Path | None = None) -> dict[str, Any]`.
-- Preserves: V1 calls without `workspace` and V1 report identity.
+- Produces: `evaluate_engineering_analysis_readiness(model_spec: dict[str, Any], analysis_spec: dict[str, Any], *, workspace: Path | None = None) -> dict[str, Any]`.
+- Preserves V1 calls without `workspace` and exact V1 report/profile identity.
 
-- [ ] **Step 1: Write failing routing tests**
+- [ ] **Step 1: Write failing routing tests using explicit validated specs**
+
+In `tests/python/test_analysis_profile_registry.py`, define a minimal valid bound ModelSpec helper and explicit AnalysisSpec dictionaries in the test file. Load the existing PR27 fixtures for V2 shapes and replace `modelSpecFingerprint` with the validated model fingerprint. For transient fixtures, only routing is tested; artifact bytes are not read by registry selection.
 
 ```python
 @pytest.mark.parametrize(
-    ("analysis", "profile"),
+    ("fixture_name", "profile"),
     [
-        (_v1_static(), "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"),
-        (_v2_static(), "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"),
-        (_v2_modal(), "OPENSEES_FRAME_2D_MODAL_V2"),
-        (_v2_nodal_transient(), "OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2"),
-        (_v2_base_transient(), "OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2"),
+        ("simple-linear-static-v2.json", "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"),
+        ("simple-modal-v2.json", "OPENSEES_FRAME_2D_MODAL_V2"),
+        ("simple-transient-nodal-v2.json", "OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2"),
+        ("simple-transient-base-v2.json", "OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2"),
     ],
 )
-def test_selects_exact_opensees_profile(analysis, profile):
-    validation = validate_engineering_analysis_spec(analysis)
+def test_selects_exact_v2_profile(fixture_name: str, profile: str) -> None:
+    spec = json.loads((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
+    validation = validate_engineering_analysis_spec(spec)
     assert validation["status"] == "VALID"
     assert select_opensees_analysis_profile(validation["normalizedSpec"]) == profile
 ```
 
-Also keep `test_bound_valid_specs_are_ready_with_proven_response_mappings` asserting the exact V1 schema/profile.
+Add one explicit V1 static dictionary and assert `OPENSEES_FRAME_2D_LINEAR_STATIC_V1`.
 
 - [ ] **Step 2: Run RED**
 
 Run: `python -m pytest tests/python/test_analysis_profile_registry.py tests/python/test_analysis_readiness.py -q`
 
-Expected: new tests fail because registry/profile selection does not exist; existing V1 assertions remain green.
+Expected: new registry import/selection tests fail; existing V1 readiness assertions remain green.
 
-- [ ] **Step 3: Implement exact registry and readiness dispatch shell**
-
-Use exact discriminator routing:
+- [ ] **Step 3: Implement exact registry and a V2 dispatch shell**
 
 ```python
 def select_opensees_analysis_profile(spec: dict[str, Any]) -> str:
@@ -126,13 +130,13 @@ def select_opensees_analysis_profile(spec: dict[str, Any]) -> str:
     raise FemCoreError("ANALYSIS_READINESS_UNSUPPORTED_PROFILE", "Unsupported OpenSees analysis profile")
 ```
 
-For Task 1, V2 dispatch may return `NOT_READY` with profile-specific checks `SKIPPED`; do not mark any V2 profile READY until its task lands.
+For Task 1, validated V2 profiles return `NOT_READY` with selected profile and profile-specific checks `SKIPPED`; do not mark any V2 profile READY yet.
 
 - [ ] **Step 4: Run GREEN and V1 regression**
 
 Run: `python -m pytest tests/python/test_analysis_profile_registry.py tests/python/test_analysis_readiness.py tests/python/test_pr26_golden_path.py -q`
 
-Expected: PASS; PR26 V1 golden path remains unchanged.
+Expected: PASS; PR26 V1 path retains schema/profile identity and golden behavior.
 
 - [ ] **Step 5: Commit**
 
@@ -147,17 +151,18 @@ git commit -m "feat: add OpenSees V2 analysis profile registry"
 - Create: `fem_core/analysis_spec/opensees_profiles/common.py`
 - Create: `fem_core/analysis_spec/opensees_profiles/static_v2.py`
 - Modify: `fem_core/analysis_spec/readiness.py`
-- Test: `tests/python/test_analysis_readiness_v2_static.py`
+- Create: `tests/python/test_analysis_readiness_v2_static.py`
+- Modify: `tests/python/test_analysis_readiness.py`
 
 **Interfaces:**
-- Produces: `evaluate_static_v2_readiness(context: ReadinessContext) -> dict[str, Any]`.
-- Produces shared helpers for model binding, target existence, reaction restraint, and structural response mapping.
-- Consumes V2 static loads from `normalizedAnalysisSpec["definition"]["loadCases"]` directly; never calls V1 migration.
+- Produces: `evaluate_static_v2_readiness(*, model_validation: dict[str, Any], analysis_validation: dict[str, Any], normalized_model: dict[str, Any], normalized_analysis: dict[str, Any]) -> dict[str, Any]`.
+- Shared helpers accept explicit normalized specs; no undefined context object or second truth store is introduced.
+- Consumes V2 static loads from `normalized_analysis["definition"]["loadCases"]` directly; never calls V1 migration.
 
 - [ ] **Step 1: Write V2 Static RED tests**
 
 ```python
-def test_v2_static_is_ready_without_v1_identity_conversion():
+def test_v2_static_is_ready_without_v1_identity_conversion() -> None:
     report = evaluate_engineering_analysis_readiness(model, v2_static)
     assert report["schema"] == "FEMAGENT_ANALYSIS_READINESS_V2"
     assert report["status"] == "READY"
@@ -165,17 +170,17 @@ def test_v2_static_is_ready_without_v1_identity_conversion():
     assert report["analysisSpecFingerprint"] == validate_engineering_analysis_spec(v2_static)["analysisSpecFingerprint"]
 ```
 
-Add cases for missing load node, missing result node/element, unrestrained reaction, model fingerprint mismatch, and force-unit mismatch. Assert the same stable PR26 issue families where semantics are identical.
+Add cases for missing load node, missing result node/element, unrestrained reaction, model fingerprint mismatch, and force-unit mismatch. Assert existing stable issue families where semantics are identical. Replace the PR27-era `test_valid_v2_is_not_admitted_to_pr26_v1_readiness` only after observing its expected stale failure once V2 Static admission is implemented; retain explicit tests proving V1 still reports V1 schema/profile.
 
 - [ ] **Step 2: Run RED**
 
 Run: `python -m pytest tests/python/test_analysis_readiness_v2_static.py -q`
 
-Expected: V2 remains NOT_READY from the Task 1 shell.
+Expected: V2 Static remains `NOT_READY` from Task 1 shell.
 
 - [ ] **Step 3: Extract shared deterministic checks and implement Static V2 readiness**
 
-Keep the V1 report construction unchanged. Shared helpers receive normalized objects and return check dictionaries/issues; V2 assembles them under `FEMAGENT_ANALYSIS_READINESS_V2` and `OPENSEES_FRAME_2D_LINEAR_STATIC_V2`.
+Move reusable target/reaction/mapping calculations into `common.py` without changing V1 report content. Build the V2 response from the same engineering facts but under `FEMAGENT_ANALYSIS_READINESS_V2` and `OPENSEES_FRAME_2D_LINEAR_STATIC_V2`.
 
 - [ ] **Step 4: Run GREEN plus V1 readiness regression**
 
@@ -186,7 +191,7 @@ Expected: all PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add fem_core/analysis_spec/opensees_profiles/common.py fem_core/analysis_spec/opensees_profiles/static_v2.py fem_core/analysis_spec/readiness.py tests/python/test_analysis_readiness_v2_static.py
+git add fem_core/analysis_spec/opensees_profiles/common.py fem_core/analysis_spec/opensees_profiles/static_v2.py fem_core/analysis_spec/readiness.py tests/python/test_analysis_readiness_v2_static.py tests/python/test_analysis_readiness.py
 git commit -m "feat: add V2 linear static OpenSees readiness"
 ```
 
@@ -195,15 +200,14 @@ git commit -m "feat: add V2 linear static OpenSees readiness"
 **Files:**
 - Create: `fem_core/analysis_spec/opensees_profiles/modal_v2.py`
 - Modify: `fem_core/analysis_spec/readiness.py`
-- Test: `tests/python/test_analysis_readiness_v2_modal.py`
+- Create: `tests/python/test_analysis_readiness_v2_modal.py`
 
 **Interfaces:**
-- Produces: `positive_free_translational_mass_dofs(model_spec) -> list[tuple[int, str]]`.
-- Produces modal response mappings with mode, quantity, target/component when applicable, OpenSees DOF for MODE_SHAPE, and canonical unit semantics.
+- Produces: `positive_free_translational_mass_dofs(model_spec: dict[str, Any]) -> list[tuple[int, str]]`.
+- Produces: `evaluate_modal_v2_readiness(*, model_validation: dict[str, Any], analysis_validation: dict[str, Any], normalized_model: dict[str, Any], normalized_analysis: dict[str, Any]) -> dict[str, Any]`.
+- Modal response mapping records `mode`, `quantity`, optional NODE target/component, DOF for MODE_SHAPE, and unit semantics: eigenvalue `1/<time>2`, frequency `Hz`, period `<time>`, mode shape `1` with `normalization="OPENSEES_NATIVE"` deferred until solver result.
 
 - [ ] **Step 1: Write modal RED tests**
-
-Cover these exact outcomes:
 
 ```python
 assert ready["profile"] == "OPENSEES_FRAME_2D_MODAL_V2"
@@ -214,7 +218,7 @@ assert "ANALYSIS_READINESS_MODAL_MODE_COUNT_EXCEEDS_DOF_BOUND" in issue_codes(to
 assert "ANALYSIS_READINESS_RESULT_NODE_NOT_FOUND" in issue_codes(missing_mode_shape_node)
 ```
 
-Assert X/Y/RZ maps to OpenSees DOF 1/2/3. Scalar `EIGENVALUE`, `NATURAL_FREQUENCY`, and `PERIOD` mappings contain no target.
+Assert X/Y/RZ MODE_SHAPE requests map to OpenSees DOF 1/2/3. Scalar EIGENVALUE/NATURAL_FREQUENCY/PERIOD mappings contain no target.
 
 - [ ] **Step 2: Run RED**
 
@@ -224,7 +228,7 @@ Expected: modal profile is not READY because profile-specific readiness is absen
 
 - [ ] **Step 3: Implement conservative modal readiness**
 
-Count a DOF only when `mUX > 0` or `mUY > 0` and the corresponding `UX`/`UY` is not constrained. Do not inspect assembled matrices or claim numerical rank. Keep MODE_SHAPE normalization unresolved in readiness metadata.
+Count a translational DOF only when `mUX > 0` or `mUY > 0` and the corresponding `UX`/`UY` is not constrained. Do not inspect assembled matrices or claim numerical rank, repeated-mode behavior, or eigensolver convergence.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -244,19 +248,21 @@ git commit -m "feat: add V2 modal OpenSees readiness"
 **Files:**
 - Create: `fem_core/analysis_spec/transient_artifact.py`
 - Create: `tests/python/test_transient_analysis_artifact.py`
-- Create fixtures: `tests/fixtures/analysis_spec/transient-nodal-force.csv`, `tests/fixtures/analysis_spec/transient-uniform-base.csv`
+- Create: `tests/fixtures/analysis_spec/transient-nodal-force.csv`
+- Create: `tests/fixtures/analysis_spec/transient-uniform-base.csv`
 
 **Interfaces:**
 - Produces: `read_transient_load_artifact(workspace: Path, ref: dict[str, str]) -> dict[str, Any]`.
 - Produces: `force_n_to_model_factor(force_unit: str) -> float`.
 - Produces: `seconds_to_model_time_factor(time_unit: str) -> float`.
 - Produces: `acceleration_m_s2_to_model_factor(length_unit: str, time_unit: str) -> tuple[float, str]`.
+- Reader returns metadata including `timeStartS`; zero-origin policy is enforced by Task 5 readiness so it can emit the required readiness issue code.
 
 - [ ] **Step 1: Write artifact-reader RED tests**
 
-Assert accepted canonical columns exactly match `FEMAGENT_LOAD_CSV_V1`; reject missing files, path escape, malformed UTF-8/CSV, multiple channels, nonuniform time, nonzero time origin, malformed numeric values, and SHA mismatch.
+Assert exact `FEMAGENT_LOAD_CSV_V1` column order; reject missing file, path escape, malformed UTF-8/CSV, multiple channels, nonuniform or non-increasing time, malformed numeric values, and SHA mismatch. A structurally valid nonzero-start file is parsed and reports its nonzero `timeStartS`, leaving policy rejection to readiness.
 
-Use conversion anchors:
+Use exact conversion anchors:
 
 ```python
 assert force_n_to_model_factor("N") == 1.0
@@ -270,11 +276,24 @@ assert acceleration_m_s2_to_model_factor("mm", "ms") == (0.001, "mm/ms2")
 
 Run: `python -m pytest tests/python/test_transient_analysis_artifact.py -q`
 
-Expected: import/module failure.
+Expected: module/import failure.
 
-- [ ] **Step 3: Implement strict reader without reusing the SDOF-only parser**
+- [ ] **Step 3: Implement strict one-channel reader**
 
-Read all long-form rows, require a single invariant `channel_id`, preserve canonical values in SI, return `timesS`, `values`, `dtS`, `timeStartS`, `timeEndS`, `applicationType`, `targetType`, `targetId`, `component`, `quantity`, `unit`, `path`, and actual `sha256`.
+Read long-form rows, require one invariant `channel_id`, keep numeric values in canonical artifact units, verify declared SHA, and return:
+
+```python
+{
+    "timesS": [...], "values": [...], "dtS": 0.01,
+    "timeStartS": 0.0, "timeEndS": 1.0,
+    "channelId": "...", "applicationType": "...",
+    "targetType": "...", "targetId": "...",
+    "component": "X", "quantity": "FORCE", "unit": "N",
+    "path": "...", "sha256": "..."
+}
+```
+
+Conversion formula for acceleration is `value_target = value_m_s2 * (1 / meters_per_length_unit) * seconds_per_time_unit**2`, with `meters_per_length_unit={m:1,cm:0.01,mm:0.001}` and `seconds_per_time_unit={s:1,ms:0.001}`.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -295,16 +314,19 @@ git commit -m "feat: add verified transient load artifact reader"
 - Create: `fem_core/analysis_spec/opensees_profiles/transient_v2.py`
 - Modify: `fem_core/analysis_spec/readiness.py`
 - Modify: `fem_core/opensees_response_mapping.py`
-- Test: `tests/python/test_analysis_readiness_v2_transient.py`
+- Create: `tests/python/test_analysis_readiness_v2_transient.py`
 
 **Interfaces:**
-- Produces both transient readiness profiles.
-- Extends response access with `NODE_VEL` and `NODE_ACCEL`; base-relative acceleration uses `NODE_ACCEL` with `referenceFrame="RELATIVE"`.
-- Records deterministic conversion evidence as `{quantity, sourceUnit, targetUnit, factor}`.
+- Produces: `evaluate_transient_v2_readiness(..., workspace: Path | None) -> dict[str, Any]` for both transient profiles.
+- Extends response access with `NODE_VEL` and `NODE_ACCEL`.
+- Exact response units: `VELOCITY -> <length>/<time>`; `ACCELERATION` and `RELATIVE_ACCELERATION -> <length>/<time>2` such as `m/s2` or `mm/ms2`.
+- Nodal-force displacement/velocity/acceleration use `referenceFrame="GLOBAL"`.
+- Uniform-base displacement/velocity/relative acceleration use `referenceFrame="RELATIVE"`; reactions remain GLOBAL and generalized forces ELEMENT_LOCAL.
+- Records conversion evidence as `{quantity, sourceUnit, targetUnit, factor}`.
 
 - [ ] **Step 1: Write transient RED tests**
 
-Cover both READY paths and fail-closed cases:
+Cover both READY profiles and fail-closed cases:
 
 ```python
 assert nodal["profile"] == "OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2"
@@ -315,9 +337,10 @@ assert "ANALYSIS_READINESS_TIME_ORIGIN_MISMATCH" in issue_codes(nonzero_start)
 assert "ANALYSIS_READINESS_TIME_STEP_MISMATCH" in issue_codes(dt_mismatch)
 assert "ANALYSIS_READINESS_DURATION_MISMATCH" in issue_codes(duration_mismatch)
 assert "ANALYSIS_READINESS_ABSOLUTE_ACCELERATION_MAPPING_UNPROVEN" in issue_codes(absolute_accel)
+assert "ANALYSIS_READINESS_FORCE_UNIT_MISMATCH" in issue_codes(nodal_force_unit_mismatch)
 ```
 
-Also assert `workspace=None` for a valid transient returns `NOT_READY` with `ANALYSIS_READINESS_WORKSPACE_REQUIRED`, while V1/static/modal remain callable without workspace.
+A valid transient with `workspace=None` returns `NOT_READY` and `ANALYSIS_READINESS_WORKSPACE_REQUIRED`. V1 Static, V2 Static, and V2 Modal remain callable without workspace.
 
 - [ ] **Step 2: Run RED**
 
@@ -327,9 +350,16 @@ Expected: transient profiles are not READY.
 
 - [ ] **Step 3: Implement readiness using Task 4 artifact evidence**
 
-Match exact excitation semantics: `NODAL_FORCE/FORCE/NODE/<id>/<X|Y>` or `UNIFORM_EXCITATION/ACCELERATION/<X|Y>`. Compare artifact `dtS` and end time to AnalysisSpec values converted from ModelSpec time units. Do not rewrite the AnalysisSpec artifact path or SHA.
+Map artifact reader failures to stable readiness codes. Require exact excitation semantics:
 
-- [ ] **Step 4: Run GREEN plus response-mapping regression**
+```text
+NODAL_TIME_HISTORY: NODAL_FORCE / FORCE / NODE / nodeId / X|Y
+UNIFORM_BASE_EXCITATION: UNIFORM_EXCITATION / ACCELERATION / X|Y
+```
+
+Require nodal transient AnalysisSpec force unit to equal ModelSpec force unit, then record N→that-unit conversion. Convert AnalysisSpec `timeStep` and `duration` from ModelSpec time units to seconds for artifact comparison. Require start time zero within deterministic tolerance. Reject `ABSOLUTE_ACCELERATION` before renderer admission.
+
+- [ ] **Step 4: Run GREEN plus mapping/V1 regressions**
 
 Run: `python -m pytest tests/python/test_analysis_readiness_v2_transient.py tests/python/test_opensees_structural_response.py tests/python/test_analysis_readiness.py -q`
 
@@ -349,16 +379,16 @@ git commit -m "feat: add V2 transient OpenSees readiness"
 - Modify: `fem_core/analysis_spec/opensees_renderer.py`
 - Modify: `fem_core/analysis_spec/opensees_profiles/static_v2.py`
 - Modify: `fem_core/analysis_spec/__init__.py`
-- Test: `tests/python/test_analysis_renderer_v2_static.py`
+- Create: `tests/python/test_analysis_renderer_v2_static.py`
 
 **Interfaces:**
-- Produces: `render_opensees_analysis(workspace: Path, model_spec: dict[str, Any], analysis_spec: dict[str, Any]) -> dict[str, Any]` as version-aware public renderer.
-- Preserves: `render_opensees_linear_static_analysis(...)` legacy V1 behavior.
-- Produces V2 bundle schema `FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2` and renderer version `2.0`.
+- Produces: `render_opensees_analysis(workspace: Path, model_spec: dict[str, Any], analysis_spec: dict[str, Any]) -> dict[str, Any]`.
+- Preserves: `render_opensees_linear_static_analysis(...)` legacy V1 behavior and hashes.
+- V2 bundle schema: `FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2`; renderer version `2.0`.
 
 - [ ] **Step 1: Write V2 Static renderer RED tests**
 
-Assert V2 Static RENDERED, V2 identity retained, source equals deterministic recompilation, same semantic inputs yield same artifact hashes/render fingerprint, different render IDs are allowed, and NOT_READY yields `BLOCKED` with zero generated-analysis writes.
+Assert V2 Static becomes RENDERED, keeps V2 analysis fingerprint/profile, source equals deterministic recompilation, same semantic inputs yield same source/plan/readiness hashes and render fingerprint, render IDs may differ, and NOT_READY yields BLOCKED with no generated-analysis writes.
 
 - [ ] **Step 2: Run RED**
 
@@ -366,9 +396,9 @@ Run: `python -m pytest tests/python/test_analysis_renderer_v2_static.py -q`
 
 Expected: version-aware renderer/V2 publisher absent.
 
-- [ ] **Step 3: Extract static command primitive and implement V2 publisher**
+- [ ] **Step 3: Extract static compiler primitive and implement V2 publisher**
 
-Use one shared primitive accepting a normalized load-case list, but keep V1 and V2 manifests/fingerprints separate. The V2 render fingerprint payload contains renderer identity, model/analysis fingerprints, readiness SHA, source SHA, response-plan SHA, and any external artifact provenance/conversion record when present.
+The shared primitive accepts normalized load cases but does not create any V1 AnalysisSpec. V1 and V2 retain separate report/fingerprint identities. V2 render fingerprint includes renderer identity, ModelSpec fingerprint, AnalysisSpec fingerprint, analysis source SHA, response plan SHA, readiness SHA, and external artifact provenance/conversions when present.
 
 - [ ] **Step 4: Run GREEN and V1 golden regression**
 
@@ -383,22 +413,34 @@ git add fem_core/analysis_spec/opensees_renderer_v2.py fem_core/analysis_spec/op
 git commit -m "feat: render V2 linear static OpenSees bundles"
 ```
 
-### Task 7: Modal Renderer, Modal Response Plan, and Deterministic V2 Bundle Verification
+### Task 7: Modal Renderer, Modal Response Plan, and V2 Bundle Verification
 
 **Files:**
 - Modify: `fem_core/analysis_spec/opensees_profiles/modal_v2.py`
 - Modify: `fem_core/analysis_spec/opensees_renderer_v2.py`
 - Modify: `fem_core/solvers/opensees_generated_analysis.py`
-- Test: `tests/python/test_analysis_renderer_v2_modal.py`
-- Test: `tests/python/test_generated_analysis_v2_verification.py`
+- Create: `tests/python/test_analysis_renderer_v2_modal.py`
+- Create: `tests/python/test_generated_analysis_v2_verification.py`
 
 **Interfaces:**
-- Modal response plan identity: `{"schemaVersion":"1.0","kind":"modal_response_plan",...}`.
-- V2 verifier returns `FEMAGENT_GENERATED_ANALYSIS_VERIFICATION_V2` and a verified execution contract indicating `executionMode="MODAL"`.
+- Modal response plan: `{"schemaVersion":"1.0","kind":"modal_response_plan","modeCount":N,"requests":[...]}`.
+- V2 verifier returns schema `FEMAGENT_GENERATED_ANALYSIS_VERIFICATION_V2`, `executionMode="MODAL"`, and trusted context:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "kind": "verified_modal_response_context",
+  "modeCount": 3,
+  "modelTimeUnit": "s",
+  "requests": []
+}
+```
+
+- Modal generated source contains exactly `_femagent_eigenvalues = ops.eigen(modeCount)` and performs no frequency/period/mode-shape postprocessing.
 
 - [ ] **Step 1: Write Modal render/verifier RED tests**
 
-Assert generated source contains exactly one real eigen call for `modeCount`, plan preserves requested modes/targets, verifier revalidates embedded specs/profile/source/plan/readiness hashes, and tampering with source/plan/readiness/manifest fails before solver run directories are created.
+Assert source contains exactly one `ops.eigen(` call with requested modeCount; plan preserves request IDs/modes/targets; verifier revalidates embedded specs/profile/source/plan/readiness hashes; tampering source/plan/readiness/manifest fails verification.
 
 - [ ] **Step 2: Run RED**
 
@@ -408,7 +450,7 @@ Expected: Modal render or V2 verification unsupported.
 
 - [ ] **Step 3: Implement Modal compilation and V1/V2 verifier routing**
 
-Generated source builds the model and invokes OpenSees eigenanalysis; it does not calculate frequency/period itself. Verifier dispatches by manifest schema and renderer identity, regenerates deterministic artifacts, and returns a trusted modal response plan.
+Verifier dispatches by manifest schema and renderer identity, deterministically regenerates artifacts, and emits only trusted response contexts. Keep V1 verifier behavior exact. Modal verified context carries normalized requests and model time unit; it never carries caller-supplied execution commands.
 
 - [ ] **Step 4: Run GREEN plus V1 tamper regression**
 
@@ -429,25 +471,38 @@ git commit -m "feat: render and verify V2 modal OpenSees bundles"
 - Modify: `fem_core/analysis_spec/opensees_profiles/transient_v2.py`
 - Modify: `fem_core/analysis_spec/opensees_renderer_v2.py`
 - Modify: `fem_core/solvers/opensees_generated_analysis.py`
-- Test: `tests/python/test_analysis_renderer_v2_transient.py`
+- Create: `tests/python/test_analysis_renderer_v2_transient.py`
 
 **Interfaces:**
-- Both profiles emit `structural_response_plan`.
-- V2 verifier re-hashes the external artifact at admission time and rejects changes after render.
-- Verified execution contract reports `executionMode="SCRIPT"` and trusted structural response context.
+- Both transient profiles emit `structural_response_plan`.
+- V2 verifier re-hashes external artifact at admission time and rejects changes after render.
+- V2 verifier returns `executionMode="SCRIPT"` and a trusted context with exact shape:
+
+```json
+{
+  "schemaVersion": "2.0",
+  "kind": "verified_structural_response_context",
+  "analysisType": "TRANSIENT",
+  "abscissaSemantic": "TIME",
+  "abscissaUnit": "s",
+  "channels": []
+}
+```
+
+For V2 Static the same V2 context kind uses `analysisType="LINEAR_STATIC"`, `abscissaSemantic="SOLVER_NATIVE_RESULT_ABSCISSA"`, and `abscissaUnit=null`. V1 keeps its existing schemaVersion 1.0 verified context unchanged.
 
 - [ ] **Step 1: Write transient renderer RED tests**
 
-Assert exact fixed analysis configuration, Nodal Path+Plain load construction, UniformExcitation construction, NONE/RAYLEIGH behavior, converted values, exact number of `ops.analyze(1, dt)` increments, and deterministic output.
+Assert exact fixed transient configuration. Nodal force source must use one Path timeSeries, one Plain pattern, and a unit load vector in the selected DOF so Path values are the converted force history. Uniform base source must use one Path timeSeries and one UniformExcitation pattern. Assert NONE emits no `ops.rayleigh`; RAYLEIGH emits exactly `ops.rayleigh(alphaM, betaK, 0.0, 0.0)`.
 
-Add relocation identity test:
+Assert `analysisSteps = duration / dt` is an integer validated by readiness and source executes exactly that many `ops.analyze(1, dt)` increments. Add relocation identity test:
 
 ```python
-assert spec_a_fp == spec_b_fp              # same artifact SHA, different path
+assert spec_a_fp == spec_b_fp
 assert rendered_a["analysisRenderFingerprint"] != rendered_b["analysisRenderFingerprint"]
 ```
 
-Add post-render external artifact tampering test expecting verification failure.
+Add post-render external artifact tamper test expecting verifier failure.
 
 - [ ] **Step 2: Run RED**
 
@@ -457,7 +512,7 @@ Expected: transient V2 rendering absent.
 
 - [ ] **Step 3: Implement both transient source builders and verifier evidence**
 
-Use converted ModelSpec-time `dt`; write deterministic Path values into generated source; record original artifact path/SHA and conversion evidence in manifest. Do not reconstruct absolute acceleration.
+Use ModelSpec-native `dt`. For NODAL_TIME_HISTORY, Path values are canonical N values multiplied by the recorded N→ModelSpec force factor, then `ops.load(node, 1.0, 0.0, 0.0)` or the Y equivalent. For Uniform Base, Path values are canonical m/s2 values multiplied by the recorded acceleration factor and `ops.pattern("UniformExcitation", ..., dof, "-accel", timeSeriesTag)` is emitted. Manifest records original external artifact path+SHA and conversions; verifier re-reads/re-hashes the external artifact before execution.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -472,57 +527,66 @@ git add fem_core/analysis_spec/opensees_profiles/transient_v2.py fem_core/analys
 git commit -m "feat: render and verify V2 transient OpenSees bundles"
 ```
 
-### Task 9: Worker Execution — Modal Mode and Transient Sampling
+### Task 9: Worker Safety and Execution — Build-Only Eigen Interception, Modal Run, Transient Sampling
 
 **Files:**
 - Modify: `fem_core/solvers/opensees_worker.py`
+- Modify: `fem_core/solvers/opensees_python.py`
 - Create: `fem_core/modal_results.py`
-- Test: `tests/python/test_opensees_worker_v2.py`
+- Create: `tests/python/test_opensees_worker_v2.py`
 
 **Interfaces:**
+- Build inspection intercepts both `ops.analyze` and `ops.eigen`, reports `interceptedAnalyzeCalls` and `interceptedEigenCalls`, restores both functions, and never performs numerical analysis/eigensolution.
 - Adds worker CLI mode `modal-run`.
 - Extends script-run sampling with `NODE_VEL` and `NODE_ACCEL`.
 - Produces `modal_results.json` with `schemaVersion="1.0"`, `kind="modal_result_set"`.
+- Modal mode-shape unit is `1` and normalization is exactly `OPENSEES_NATIVE`.
 
-- [ ] **Step 1: Write worker RED tests with a fake ops boundary where possible**
+- [ ] **Step 1: Write worker RED tests**
 
-For transient sampling assert:
+Fake-ops accessor tests:
 
 ```python
 assert _sample_response_channel(ops, channel=vel, mapping={"access":"NODE_VEL","dof":2}) == expected_vel
 assert _sample_response_channel(ops, channel=acc, mapping={"access":"NODE_ACCEL","dof":1}) == expected_acc
 ```
 
-For modal canonicalization assert positive eigenvalues produce:
+Build-inspect test uses a tiny generated modal source and asserts real `ops.eigen` is not allowed to run while `interceptedEigenCalls == 1`.
+
+Modal canonicalization uses real captured eigenvalues and exact formulas:
 
 ```python
-omega = math.sqrt(lam)
-expected_period = 2 * math.pi / omega
-expected_hz = omega / (2 * math.pi * seconds_per_model_time_unit)
+omega_native = math.sqrt(lam)
+period = 2 * math.pi / omega_native
+frequency_hz = omega_native / (2 * math.pi * seconds_per_model_time_unit)
 ```
 
-and nonpositive/nonfinite solver eigenvalues fail closed.
+Reject nonpositive or nonfinite eigenvalues.
 
 - [ ] **Step 2: Run RED**
 
 Run: `python -m pytest tests/python/test_opensees_worker_v2.py -q`
 
-Expected: unsupported worker modes/accessors.
+Expected: eigen interception, new accessors, and modal-run are absent.
 
-- [ ] **Step 3: Implement worker accessors and modal execution**
+- [ ] **Step 3: Implement build-only eigen interception and one-solve modal-run**
 
-`modal-run` loads only a verified modal response contract, runs the generated script in isolation, reads real OpenSees eigenvalues/nodeEigenvector values, and writes requested results plus package/engine identity. Mode-shape channels carry `normalization="OPENSEES_NATIVE"` and are never labeled displacement.
+In build inspection, wrap `ops.eigen` with a blocker that increments `interceptedEigenCalls` and returns placeholder values without invoking the original. In `modal-run`, replace `ops.eigen` with a capture wrapper that invokes the original exactly once when the generated script calls it, stores the returned eigenvalue vector, and returns it to the script. After `runpy.run_path` and before `ops.wipe`, use the captured values plus `ops.nodeEigenvector(node, mode, dof)` to build requested canonical modal results. Restore original functions in `finally`.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Step 4: Lock post-step transient sampling semantics**
+
+Add a script-run test with duration `0.03` and dt `0.01` asserting exactly three samples with abscissa `[0.01, 0.02, 0.03]`; no synthetic zero-time sample is present. V2 verified structural response context supplies `abscissaSemantic="TIME"` and `abscissaUnit=<ModelSpec time unit>` to `_write_structural_response`. Keep V1 context output unchanged.
+
+- [ ] **Step 5: Run GREEN**
 
 Run: `python -m pytest tests/python/test_opensees_worker_v2.py tests/python/test_opensees_structural_response.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add fem_core/solvers/opensees_worker.py fem_core/modal_results.py tests/python/test_opensees_worker_v2.py
+git add fem_core/solvers/opensees_worker.py fem_core/solvers/opensees_python.py fem_core/modal_results.py tests/python/test_opensees_worker_v2.py
 git commit -m "feat: execute V2 modal and transient OpenSees responses"
 ```
 
@@ -531,26 +595,26 @@ git commit -m "feat: execute V2 modal and transient OpenSees responses"
 **Files:**
 - Modify: `fem_core/solvers/opensees_python.py`
 - Modify: `fem_core/solvers/opensees_generated_analysis.py`
-- Test: `tests/python/test_generated_opensees_analysis_v2.py`
+- Create: `tests/python/test_generated_opensees_analysis_v2.py`
 
 **Interfaces:**
-- Existing `solverOptions={responsePlanPath, analysisManifestPath}` remains unchanged.
+- Existing solver options remain exactly `{responsePlanPath, analysisManifestPath}`.
 - Verified V2 bundle selects worker execution mode from verifier output; caller cannot request mode manually.
-- Run manifest remains `schemaVersion="1.0"`, `kind="solver_run"`, and records generated-analysis verification identity plus `structuralResponse` or `modalResults` output hashes.
+- Run manifest remains `schemaVersion="1.0"`, `kind="solver_run"`, and records generated-analysis verification identity plus `structuralResponse/structuralResponseSha256` or `modalResults/modalResultsSha256`.
 
 - [ ] **Step 1: Write solver-admission RED tests**
 
-Assert preflight accepts verified V2 static/modal/transient bundles, build-domain identity still matches ModelSpec, `loadPath` remains forbidden for generated bundles, and tampered V2 bundles fail before `.femagent/runs/run_*` creation.
+Assert preflight accepts verified V2 Static/Modal/both Transient bundles; build-domain identity still matches embedded ModelSpec; `loadPath` remains forbidden for generated bundles; Modal preflight reports intercepted eigen without numerical solve; tampered V2 bundles fail before `.femagent/runs/run_*` creation.
 
 - [ ] **Step 2: Run RED**
 
 Run: `python -m pytest tests/python/test_generated_opensees_analysis_v2.py -q`
 
-Expected: V2 verifier output is not yet routed by adapter.
+Expected: V2 verifier output is not yet fully routed by adapter.
 
 - [ ] **Step 3: Implement verified execution-mode routing**
 
-Keep `_solver_options` as the sole generated-bundle admission. Route verified `MODAL` to worker `modal-run`; route V1/V2 Static and Transient to controlled script-run. Record output path+SHA in the run manifest.
+Keep `_solver_options` as the sole generated-bundle admission. Route verified `executionMode="MODAL"` to worker `modal-run`; route verified `executionMode="SCRIPT"` to controlled script-run. Stage only verifier-produced trusted context; do not stage raw unverified execution instructions. Record output path+SHA in run manifest.
 
 - [ ] **Step 4: Run GREEN plus PR26 admission regression**
 
@@ -570,36 +634,40 @@ git commit -m "feat: admit verified V2 generated analyses to OpenSees"
 **Files:**
 - Modify: `fem_core/result_intelligence.py`
 - Modify: `fem_core/modal_results.py`
-- Test: `tests/python/test_result_intelligence_modal.py`
-- Test: `tests/python/test_result_intelligence_v2_transient.py`
+- Create: `tests/python/test_result_intelligence_modal.py`
+- Create: `tests/python/test_result_intelligence_v2_transient.py`
 
 **Interfaces:**
-- `inspect_result` advertises requested Modal capabilities from `modal_results.json`.
-- `query_result` accepts Modal queries using quantity+mode and optional NODE target/component for MODE_SHAPE.
-- Transient structural response uses TIME abscissa in ModelSpec time unit and exposes `VELOCITY`, nodal `ACCELERATION` or `RELATIVE_ACCELERATION`, reactions, and generalized forces from verified channels.
+- `inspect_result` advertises only requested Modal capabilities from verified `modal_results.json`.
+- `query_result` accepts Modal `VALUE` queries by `quantity+mode`; MODE_SHAPE additionally requires NODE target/component.
+- Transient structural response uses TIME abscissa in ModelSpec time unit and preserves each verified channel reference frame.
 
 - [ ] **Step 1: Write Result Intelligence RED tests**
 
-Modal examples:
+Modal:
 
 ```python
-query = {"quantity":"NATURAL_FREQUENCY", "mode":1, "operation":"VALUE"}
-assert result["unit"] == "Hz"
-shape = {"quantity":"MODE_SHAPE", "mode":1, "target":{"type":"NODE","id":2}, "component":"Y", "operation":"VALUE"}
-assert query_result(workspace, run_id, shape)["normalization"] == "OPENSEES_NATIVE"
+freq = query_result(workspace, run_id, {"quantity":"NATURAL_FREQUENCY", "mode":1, "operation":"VALUE"})
+assert freq["unit"] == "Hz"
+shape = query_result(workspace, run_id, {
+    "quantity":"MODE_SHAPE", "mode":1,
+    "target":{"type":"NODE","id":2}, "component":"Y", "operation":"VALUE"
+})
+assert shape["unit"] == "1"
+assert shape["normalization"] == "OPENSEES_NATIVE"
 ```
 
-Transient examples assert `SERIES`/`SUMMARY` preserve TIME abscissa, units, and reference frames; no `ABSOLUTE_ACCELERATION` capability is advertised.
+Transient SERIES/SUMMARY tests assert TIME abscissa, exact model-time unit, response unit strings, and reference frames. Uniform Base displacement/velocity/relative acceleration are RELATIVE. No ABSOLUTE_ACCELERATION capability is advertised.
 
 - [ ] **Step 2: Run RED**
 
 Run: `python -m pytest tests/python/test_result_intelligence_modal.py tests/python/test_result_intelligence_v2_transient.py -q`
 
-Expected: modal artifact unsupported and/or transient accessors absent.
+Expected: modal artifact unsupported and/or transient mappings absent.
 
 - [ ] **Step 3: Implement modal reader/query and transient semantic mapping**
 
-Add `modalResults/modalResultsSha256` to artifact verification pairs. Do not reinterpret MODE_SHAPE as displacement. Keep legacy SDOF response.csv behavior intact.
+Add `modalResults/modalResultsSha256` to artifact verification pairs. Keep legacy SDOF response.csv behavior unchanged. Do not reinterpret MODE_SHAPE as displacement or reconstruct absolute acceleration.
 
 - [ ] **Step 4: Run GREEN plus existing Result Intelligence regression**
 
@@ -636,15 +704,15 @@ git commit -m "feat: query modal and V2 transient OpenSees results"
 
 - [ ] **Step 1: Write TypeScript/bridge RED tests**
 
-Assert the preparation tool schema accepts V1 Static plus V2 Static/Modal/both Transient shapes, CHECK remains read-only, RENDER passes the workspace-aware readiness/render path, and no `fem_modal_prepare`, `fem_transient_prepare`, or new migration tool is registered.
+Assert preparation tool schema accepts V1 Static plus V2 Static/Modal/both Transient shapes, CHECK remains read-only, RENDER uses workspace-aware readiness/render, and no `fem_modal_prepare`, `fem_transient_prepare`, `fem_analysis_execute_v2`, or migration Agent tool is registered.
 
 Run: `pnpm typecheck && pnpm test:ts`
 
 Expected before implementation: typecheck/tests fail because prepare transport remains V1-only.
 
-- [ ] **Step 2: Widen transport and the existing tool only**
+- [ ] **Step 2: Widen transport and the existing preparation tool only**
 
-In Python bridge:
+Python bridge:
 
 ```python
 elif command == "analysis.readiness":
@@ -653,7 +721,7 @@ elif command == "analysis.renderOpenSees":
     result = render_opensees_analysis(workspace, model_spec, analysis_spec)
 ```
 
-Update prompt guidance so V2 READY/RENDERED is supported in PR28 but execution still requires generic solver preflight/run and verified bundle admission.
+TypeScript readiness/render report unions discriminate by V1/V2 schema/profile. Add response mappings for NODE_VEL/NODE_ACCEL and modal mappings without weakening existing V1 fields. Update prompt guidance so V2 READY/RENDERED is supported in PR28 but real execution still requires generic solver preflight/run and verified generated-bundle admission.
 
 - [ ] **Step 3: Run TS/bridge GREEN**
 
@@ -663,7 +731,7 @@ Expected: PASS.
 
 - [ ] **Step 4: Write and run four real OpenSees golden cases**
 
-`tests/python/test_pr28_golden_paths.py` must execute through renderer → adapter preflight → adapter run → Result Intelligence for:
+`tests/python/test_pr28_golden_paths.py` executes renderer → adapter preflight → adapter run → Result Intelligence for:
 
 ```text
 V2 LINEAR_STATIC
@@ -672,13 +740,13 @@ V2 TRANSIENT NODAL_TIME_HISTORY
 V2 TRANSIENT UNIFORM_BASE_EXCITATION
 ```
 
-Use small deterministic models and short histories. Modal must assert finite positive eigenvalue/frequency/period and internally consistent `period * frequencyHz ≈ 1` after time-unit conversion. Transient cases must assert expected sample count/time axis, finite channel values, and requested capabilities. Do not assert fragile exact dynamic amplitudes unless an analytic solution is explicitly encoded in the test.
+Use small deterministic models and short histories. Modal asserts finite positive eigenvalue/frequency/period and `period_in_seconds * frequencyHz ≈ 1`; for ModelSpec `time="ms"`, convert period to seconds before the product. Transient cases assert `analysisSteps = duration/dt`, sample count equals analysisSteps, first abscissa equals `dt`, final abscissa equals `duration`, no zero-time sample is synthesized, all values are finite, and only requested capabilities are advertised. Avoid fragile exact transient amplitudes unless an analytic solution is explicitly encoded.
 
 Run: `python -m pytest tests/python/test_pr28_golden_paths.py -q`
 
-Expected: PASS with OpenSeesPy installed; optional-dependency skip is acceptable only in environments where `adapter.status()["available"]` is false. CI must exercise the installed OpenSees path.
+Expected: PASS with OpenSeesPy installed. Optional-dependency skip is acceptable only when `adapter.status()["available"]` is false; CI must exercise installed OpenSeesPy.
 
-- [ ] **Step 5: Run the full fresh PR28 verification suite**
+- [ ] **Step 5: Run full fresh PR28 verification**
 
 Run exactly:
 
@@ -692,11 +760,11 @@ python -c "from fem_core.ansys_result_reader import read_binary; print(read_bina
 pnpm fem:health
 ```
 
-Expected: zero test/lint/typecheck failures; OpenSees and ANSYS smoke imports succeed; `fem:health` reports `status=ok`.
+Expected: zero typecheck/test/lint failures; solver smoke imports succeed; health reports `status=ok`.
 
 - [ ] **Step 6: Perform final scope audit**
 
-Compare PR27 HEAD `c25422b6467257d7b270aae6f19b4f476afa0174` to PR28 HEAD and verify changed files are limited to PR28 design/plan, OpenSees AnalysisSpec readiness/render/verifier/worker/result paths, TypeScript contracts, Pi preparation-tool widening, fixtures, and tests. Confirm no ANSYS production file, natural-language completion file, repair subsystem, optimization subsystem, or new Agent tool registration was added.
+Compare PR27 HEAD `c25422b6467257d7b270aae6f19b4f476afa0174` to PR28 HEAD. Changed production files must be limited to OpenSees AnalysisSpec readiness/render/verifier/worker/result paths, bridge/TypeScript contracts, and preparation-tool widening. Confirm no ANSYS production file, natural-language completion file, repair subsystem, optimization subsystem, or new Agent tool registration was added.
 
 - [ ] **Step 7: Commit final integration changes**
 
@@ -707,19 +775,21 @@ git commit -m "feat: complete PR28 V2 OpenSees analysis execution"
 
 ## Completion Criteria
 
-PR28 is complete only when all of the following are demonstrated by tests and final CI:
+PR28 is complete only when all criteria below are demonstrated by tests and fresh final CI:
 
-1. PR26 V1 static validation/readiness/render/verification/execution/result path remains green and retains V1 protocol/profile identities.
-2. V2 Static is READY when its bound model/targets/units are executable and renders under `OPENSEES_FRAME_2D_LINEAR_STATIC_V2` without V1 migration.
-3. V2 Modal checks mass/free-DOF/target prerequisites, renders deterministically, runs real OpenSees eigenanalysis, and produces canonical modal results.
-4. V2 Nodal Transient verifies canonical force artifact identity/semantics/time, renders deterministic Path+Plain loading, executes, and produces requested structural-response series.
-5. V2 Uniform Base Transient verifies canonical acceleration artifact identity/semantics/time, renders deterministic UniformExcitation loading, executes, and produces requested structural-response series.
+1. PR26 V1 Static validation/readiness/render/verification/execution/result path remains green with exact V1 protocol/profile identities.
+2. V2 Static becomes READY when its bound model/targets/units are executable and renders under `OPENSEES_FRAME_2D_LINEAR_STATIC_V2` without V1 migration.
+3. V2 Modal checks mass/free-DOF/target prerequisites, renders deterministically, build inspection intercepts eigensolution, `modal-run` performs exactly one real OpenSees eigensolve, and canonical modal results come from solver values.
+4. V2 Nodal Transient verifies force artifact identity/semantics/time and AnalysisSpec↔ModelSpec force-unit agreement, renders deterministic Path+Plain loading, executes, and produces requested structural-response series.
+5. V2 Uniform Base Transient verifies acceleration artifact identity/semantics/time, renders deterministic UniformExcitation loading, executes, and produces requested structural-response series.
 6. `ABSOLUTE_ACCELERATION` remains valid intrinsically but is NOT_READY for the base-excitation OpenSees profile.
 7. External transient artifact mutation after render is caught by generated-analysis verification before solver execution.
 8. V2 bundle source/plan/readiness/manifest tampering is caught before solver execution.
 9. Same transient artifact SHA at different paths keeps AnalysisSpec fingerprint identity but changes concrete render identity/provenance.
-10. Modal MODE_SHAPE is recorded as OpenSees-native normalization-dependent output, not physical displacement.
-11. The existing `fem_analysis_prepare_opensees` tool accepts V1/V2 supported AnalysisSpecs; no profile-specific preparation tool is added.
-12. Generic `fem_solver_preflight` / `fem_solver_run` remain the only real solver execution path.
-13. No ANSYS V2 renderer, natural-language Analysis Completion, Controlled Repair, nonlinear analysis, or optimization implementation enters PR28.
-14. Full typecheck, TypeScript tests, Python tests, Ruff, solver smoke checks, and health check are fresh and green on the final PR28 HEAD.
+10. Modal MODE_SHAPE is unit `1`, carries `normalization="OPENSEES_NATIVE"`, and is never represented as displacement.
+11. Transient result series contains only post-successful-step samples: first abscissa `dt`, last abscissa `duration`, sample count `duration/dt`; no synthetic `t=0` result is inserted.
+12. Uniform-base displacement, velocity, and relative acceleration are explicitly labeled `referenceFrame="RELATIVE"`; nodal-force dynamic responses are GLOBAL.
+13. Existing `fem_analysis_prepare_opensees` accepts V1/V2 supported AnalysisSpecs; no profile-specific preparation tool is added.
+14. Generic `fem_solver_preflight` / `fem_solver_run` remain the only real solver execution path and accept no new user-selectable execution-mode option.
+15. No ANSYS V2 renderer, natural-language Analysis Completion, Controlled Repair, nonlinear analysis, or optimization implementation enters PR28.
+16. Full typecheck, TypeScript tests, Python tests, Ruff, solver smoke checks, and health check are fresh and green on final PR28 HEAD.
