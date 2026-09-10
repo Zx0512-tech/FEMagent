@@ -63,6 +63,36 @@ def _modal_unit(quantity: str, time_unit: str) -> str:
     )
 
 
+def build_modal_response_plan(normalized_analysis: dict[str, Any]) -> dict[str, Any]:
+    definition = normalized_analysis.get("definition")
+    if not isinstance(definition, dict) or not isinstance(definition.get("modeCount"), int):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Valid V2 MODAL AnalysisSpec must provide definition.modeCount",
+        )
+    requests: list[dict[str, Any]] = []
+    for request in sorted(
+        normalized_analysis.get("resultRequests", []),
+        key=lambda item: str(item["requestId"]),
+    ):
+        item: dict[str, Any] = {
+            "requestId": str(request["requestId"]),
+            "quantity": str(request["quantity"]),
+            "mode": int(request["mode"]),
+        }
+        if "target" in request:
+            item["target"] = dict(request["target"])
+        if "component" in request:
+            item["component"] = str(request["component"])
+        requests.append(item)
+    return {
+        "schemaVersion": "1.0",
+        "kind": "modal_response_plan",
+        "modeCount": int(definition["modeCount"]),
+        "requests": requests,
+    }
+
+
 def _build_modal_response_mapping(
     *,
     normalized_model: dict[str, Any],
@@ -253,6 +283,7 @@ def evaluate_modal_v2_readiness(
 
 
 __all__ = [
+    "build_modal_response_plan",
     "evaluate_modal_v2_readiness",
     "positive_free_translational_mass_dofs",
 ]
