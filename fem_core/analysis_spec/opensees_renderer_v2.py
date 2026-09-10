@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fem_core.analysis_spec.opensees_profiles import OPENSEES_MODAL_V2, OPENSEES_STATIC_V2
+from fem_core.analysis_spec.opensees_profiles import (
+    OPENSEES_MODAL_V2,
+    OPENSEES_STATIC_V2,
+    OPENSEES_TRANSIENT_BASE_V2,
+    OPENSEES_TRANSIENT_NODAL_V2,
+)
 from fem_core.analysis_spec.opensees_profiles.modal_v2 import build_modal_response_plan
 from fem_core.analysis_spec.opensees_renderer import (
     build_structural_response_plan,
@@ -110,6 +115,156 @@ def build_opensees_modal_v2_source(
             f"_femagent_eigenvalues = ops.eigen({mode_count})",
         ]
     ) + "\n"
+
+
+def _conversion_factor(
+    unit_conversions: list[dict[str, Any]],
+    quantity: str,
+) -> float:
+    matches = [item for item in unit_conversions if item.get("quantity") == quantity]
+    if len(matches) != 1:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            f"Transient readiness must provide exactly one {quantity} unit conversion",
+        )
+    factor = matches[0].get("factor")
+    if not isinstance(factor, (int, float)) or isinstance(factor, bool):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            f"Transient readiness {quantity} unit conversion must be numeric",
+        )
+    return float(factor)
+
+
+def build_opensees_transient_v2_source(
+    normalized_model_spec: dict[str, Any],
+    normalized_analysis_spec: dict[str, Any],
+    readiness: dict[str, Any],
+) -> str:
+    definition = normalized_analysis_spec.get("definition")
+    if not isinstance(definition, dict):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Valid V2 transient AnalysisSpec must provide definition",
+        )
+    time_definition = definition.get("time")
+    damping = definition.get("damping")
+    excitation = definition.get("excitation")
+    if not isinstance(time_definition, dict) or not isinstance(damping, dict) or not isinstance(excitation, dict):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Valid V2 transient AnalysisSpec must provide time, damping, and excitation",
+        )
+    checks = readiness.get("checks")
+    if not isinstance(checks, dict):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient renderer requires readiness checks",
+        )
+    artifact_check = checks.get("loadArtifact")
+    time_check = checks.get("timeCompatibility")
+    conversion_check = checks.get("unitConversions")
+    if (
+        not isinstance(artifact_check, dict)
+        or not isinstance(time_check, dict)
+        or not isinstance(conversion_check, dict)
+    ):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient readiness must provide artifact, time, and conversion evidence",
+        )
+    evidence = artifact_check.get("evidence")
+    unit_conversions = conversion_check.get("conversions")
+    analysis_steps = time_check.get("analysisSteps")
+    if not isinstance(evidence, dict) or not isinstance(unit_conversions, list):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient readiness must provide verified artifact and conversion evidence",
+        )
+    if not isinstance(analysis_steps, int) or isinstance(analysis_steps, bool) or analysis_steps <= 0:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient readiness must provide a positive integer analysisSteps",
+        )
+    values = evidence.get("values")
+    if not isinstance(values, list) or len(values) < 2:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient readiness must provide verified load values",
+        )
+
+    dt = float(time_definition["timeStep"])
+    source = build_opensees_frame_2d_model_source(normalized_model_spec)
+    lines = [source.rstrip("\n"), ""]
+
+    excitation_type = excitation.get("type")
+    if excitation_type == "NODAL_TIME_HISTORY":
+        factor = _conversion_factor(unit_conversions, "FORCE")
+        converted_values = [float(value) * factor for value in values]
+    elif excitation_type == "UNIFORM_BASE_EXCITATION":
+        factor = _conversion_factor(unit_conversions, "ACCELERATION")
+        converted_values = [float(value) * factor for value in values]
+    else:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient renderer received an unsupported excitation type after readiness",
+        )
+
+    values_literal = ", ".join(format_opensees_number(value) for value in converted_values)
+    dt_text = format_opensees_number(dt)
+    lines.extend(
+        [
+            f"_femagent_path_values = [{values_literal}]",
+            f'ops.timeSeries("Path", 1, "-dt", {dt_text}, "-values", *_femagent_path_values)',
+        ]
+    )
+
+    component_dof = {"X": 1, "Y": 2}
+    component = str(excitation["component"])
+    try:
+        dof = component_dof[component]
+    except KeyError as exc:
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "Transient renderer received an unsupported excitation component after readiness",
+            details={"component": component},
+        ) from exc
+
+    if excitation_type == "NODAL_TIME_HISTORY":
+        lines.append('ops.pattern("Plain", 1, 1)')
+        if dof == 1:
+            unit_load = "1.0, 0.0, 0.0"
+        else:
+            unit_load = "0.0, 1.0, 0.0"
+        lines.append(f"ops.load({int(excitation['nodeId'])}, {unit_load})")
+    else:
+        lines.append(f'ops.pattern("UniformExcitation", 1, {dof}, "-accel", 1)')
+
+    if damping.get("type") == "RAYLEIGH":
+        lines.append(
+            "ops.rayleigh("
+            f"{format_opensees_number(damping['alphaM'])}, "
+            f"{format_opensees_number(damping['betaK'])}, 0.0, 0.0)"
+        )
+
+    lines.extend(
+        [
+            "",
+            'ops.constraints("Plain")',
+            'ops.numberer("Plain")',
+            'ops.system("BandGeneral")',
+            'ops.algorithm("Linear")',
+            'ops.integrator("Newmark", 0.5, 0.25)',
+            'ops.analysis("Transient")',
+            f"for _femagent_step in range({analysis_steps}):",
+            f"    _femagent_code = int(ops.analyze(1, {dt_text}))",
+            "    if _femagent_code != 0:",
+            "        raise RuntimeError(",
+            '            f"FEMagent OpenSees transient analysis failed with code {_femagent_code}"',
+            "        )",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _render_fingerprint(
@@ -253,6 +408,25 @@ def _publish_v2_bundle(
     return report
 
 
+def _transient_provenance(readiness: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    checks = readiness["checks"]
+    evidence = checks["loadArtifact"]["evidence"]
+    conversions = checks["unitConversions"]["conversions"]
+    if not isinstance(evidence, dict) or not isinstance(conversions, list):
+        raise FemCoreError(
+            "OPENSEES_ANALYSIS_RENDER_INTERNAL_INVARIANT",
+            "READY transient analysis lacks verified artifact provenance",
+        )
+    external_artifacts = [
+        {
+            "path": str(evidence["path"]),
+            "sha256": str(evidence["sha256"]),
+            "format": str(evidence["format"]),
+        }
+    ]
+    return external_artifacts, [dict(item) for item in conversions]
+
+
 def render_opensees_analysis(
     workspace: Path,
     model_spec: dict[str, Any],
@@ -293,6 +467,8 @@ def render_opensees_analysis(
             "Analysis Readiness and intrinsic validation disagree at the V2 renderer boundary",
         )
 
+    external_artifacts: list[dict[str, Any]] = []
+    unit_conversions: list[dict[str, Any]] = []
     profile = readiness.get("profile")
     if profile == OPENSEES_STATIC_V2:
         definition = normalized_analysis["definition"]
@@ -308,6 +484,14 @@ def render_opensees_analysis(
             int(definition["modeCount"]),
         )
         response_plan = build_modal_response_plan(normalized_analysis)
+    elif profile in {OPENSEES_TRANSIENT_NODAL_V2, OPENSEES_TRANSIENT_BASE_V2}:
+        analysis_source = build_opensees_transient_v2_source(
+            normalized_model,
+            normalized_analysis,
+            readiness,
+        )
+        response_plan = build_structural_response_plan(normalized_analysis)
+        external_artifacts, unit_conversions = _transient_provenance(readiness)
     else:
         raise FemCoreError(
             "OPENSEES_ANALYSIS_RENDER_UNSUPPORTED_PROFILE",
@@ -325,6 +509,8 @@ def render_opensees_analysis(
         analysis_fingerprint=analysis_fingerprint,
         analysis_source=analysis_source,
         response_plan=response_plan,
+        external_artifacts=external_artifacts,
+        unit_conversions=unit_conversions,
     )
 
 
@@ -333,5 +519,6 @@ __all__ = [
     "RENDER_SCHEMA_V2",
     "build_opensees_linear_static_v2_source",
     "build_opensees_modal_v2_source",
+    "build_opensees_transient_v2_source",
     "render_opensees_analysis",
 ]
