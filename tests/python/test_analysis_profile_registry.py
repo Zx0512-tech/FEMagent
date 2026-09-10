@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
