@@ -109,18 +109,21 @@ def test_bound_valid_specs_are_ready_with_proven_response_mappings() -> None:
     assert mappings["R_ELE_MZ"]["unit"] == "N*m"
 
 
-def test_valid_v2_is_not_admitted_to_pr26_v1_readiness() -> None:
+def test_explicitly_migrated_v2_static_is_admitted_by_v2_readiness() -> None:
     model = _model_spec()
     migration = migrate_engineering_analysis_spec_v1_to_v2(_bound_analysis_spec(model))
     v2 = migration["candidateSpec"]
     assert isinstance(v2, dict)
-    assert validate_engineering_analysis_spec(v2)["status"] == "VALID"
+    validation = validate_engineering_analysis_spec(v2)
+    assert validation["status"] == "VALID"
 
     report = evaluate_engineering_analysis_readiness(model, v2)
 
-    assert report["status"] == "NOT_READY"
-    assert "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION" in _issue_codes(report)
-    assert all(check["status"] == "SKIPPED" for check in report["checks"].values())
+    assert report["schema"] == "FEMAGENT_ANALYSIS_READINESS_V2"
+    assert report["status"] == "READY"
+    assert report["profile"] == "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"
+    assert report["analysisSpecFingerprint"] == validation["analysisSpecFingerprint"]
+    assert all(check["status"] == "PASS" for check in report["checks"].values())
 
 
 def test_invalid_model_spec_produces_invalid_spec_and_skips_joint_checks() -> None:
