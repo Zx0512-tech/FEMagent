@@ -37,15 +37,11 @@ def test_sample_response_channel_supports_node_velocity_and_acceleration() -> No
 def test_build_inspection_intercepts_eigen_without_solving(tmp_path: Path) -> None:
     source = tmp_path / "modal.py"
     source.write_text(
-        "\n".join(
-            [
-                "import openseespy.opensees as ops",
-                'ops.model("basic", "-ndm", 1, "-ndf", 1)',
-                "ops.node(1, 0.0)",
-                "_femagent_eigenvalues = ops.eigen(1)",
-            ]
-        )
-        + "\n",
+        """import openseespy.opensees as ops
+ops.model("basic", "-ndm", 1, "-ndf", 1)
+ops.node(1, 0.0)
+_femagent_eigenvalues = ops.eigen(1)
+""",
         encoding="utf-8",
     )
 
@@ -145,31 +141,27 @@ def test_modal_run_captures_single_eigen_solve_and_writes_canonical_results(tmp_
 def test_v2_transient_context_samples_only_after_each_step(tmp_path: Path) -> None:
     source = tmp_path / "transient.py"
     source.write_text(
-        "\n".join(
-            [
-                "import openseespy.opensees as ops",
-                'ops.model("basic", "-ndm", 1, "-ndf", 1)',
-                "ops.node(1, 0.0)",
-                "ops.node(2, 0.0)",
-                "ops.fix(1, 1)",
-                "ops.mass(2, 1.0)",
-                'ops.uniaxialMaterial("Elastic", 1, 100.0)',
-                'ops.element("zeroLength", 1, 1, 2, "-mat", 1, "-dir", 1)',
-                'ops.timeSeries("Path", 1, "-dt", 0.01, "-values", 0.0, 1.0, 0.0, 0.0)',
-                'ops.pattern("Plain", 1, 1)',
-                "ops.load(2, 1.0)",
-                'ops.constraints("Plain")',
-                'ops.numberer("Plain")',
-                'ops.system("BandGeneral")',
-                'ops.algorithm("Linear")',
-                'ops.integrator("Newmark", 0.5, 0.25)',
-                'ops.analysis("Transient")',
-                "for _step in range(3):",
-                "    if int(ops.analyze(1, 0.01)) != 0:",
-                '        raise RuntimeError("transient failed")',
-            ]
-        )
-        + "\n",
+        """import openseespy.opensees as ops
+ops.model("basic", "-ndm", 1, "-ndf", 1)
+ops.node(1, 0.0)
+ops.node(2, 0.0)
+ops.fix(1, 1)
+ops.mass(2, 1.0)
+ops.uniaxialMaterial("Elastic", 1, 100.0)
+ops.element("zeroLength", 1, 1, 2, "-mat", 1, "-dir", 1)
+ops.timeSeries("Path", 1, "-dt", 0.01, "-values", 0.0, 1.0, 0.0, 0.0)
+ops.pattern("Plain", 1, 1)
+ops.load(2, 1.0)
+ops.constraints("Plain")
+ops.numberer("Plain")
+ops.system("BandGeneral")
+ops.algorithm("Linear")
+ops.integrator("Newmark", 0.5, 0.25)
+ops.analysis("Transient")
+for _step in range(3):
+    if int(ops.analyze(1, 0.01)) != 0:
+        raise RuntimeError("transient failed")
+""",
         encoding="utf-8",
     )
     context = {
