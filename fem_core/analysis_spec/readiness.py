@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.analysis_spec.opensees_profiles import (
+    OPENSEES_MODAL_V2,
     OPENSEES_STATIC_V1,
     OPENSEES_STATIC_V2,
     select_opensees_analysis_profile,
 )
+from fem_core.analysis_spec.opensees_profiles.modal_v2 import evaluate_modal_v2_readiness
 from fem_core.analysis_spec.opensees_profiles.static_v2 import evaluate_static_v2_readiness
 from fem_core.analysis_spec.validator import validate_engineering_analysis_spec
 from fem_core.errors import FemCoreError
@@ -162,6 +164,13 @@ def evaluate_engineering_analysis_readiness(
     profile = select_opensees_analysis_profile(normalized_analysis)
     if profile == OPENSEES_STATIC_V2:
         return evaluate_static_v2_readiness(
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            normalized_model=normalized_model,
+            normalized_analysis=normalized_analysis,
+        )
+    if profile == OPENSEES_MODAL_V2:
+        return evaluate_modal_v2_readiness(
             model_validation=model_validation,
             analysis_validation=analysis_validation,
             normalized_model=normalized_model,
