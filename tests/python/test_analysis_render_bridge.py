@@ -91,7 +91,7 @@ def test_analysis_render_rendered_and_blocked_are_domain_results(tmp_path: Path)
     assert blocked["result"]["status"] == "BLOCKED"
 
 
-def test_valid_v2_render_is_blocked_without_generated_analysis_artifacts(tmp_path: Path) -> None:
+def test_legacy_v1_renderer_fails_closed_for_v2_until_v2_renderer_lands(tmp_path: Path) -> None:
     model = _model_spec()
     migration = migrate_engineering_analysis_spec_v1_to_v2(_analysis_spec(model))
     v2 = migration["candidateSpec"]
@@ -102,14 +102,8 @@ def test_valid_v2_render_is_blocked_without_generated_analysis_artifacts(tmp_pat
         workspace=tmp_path,
     )
 
-    assert response["ok"] is True
-    result = response["result"]
-    assert result["status"] == "BLOCKED"
-    assert result["artifacts"] is None
-    assert result["readiness"]["status"] == "NOT_READY"
-    assert "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION" in {
-        issue["code"] for issue in result["readiness"]["issues"]
-    }
+    assert response["ok"] is False
+    assert response["error"]["code"] == "OPENSEES_ANALYSIS_RENDER_UNSUPPORTED_PROFILE"
     assert not (tmp_path / ".femagent" / "generated-analyses").exists()
 
 
