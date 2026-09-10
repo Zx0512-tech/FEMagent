@@ -458,6 +458,13 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                     "GENERATED_ANALYSIS_ARTIFACT_MISMATCH",
                     "Staged OpenSees analysis differs from the verified generated analysis",
                 )
+            if generated.get("executionMode") is None:
+                source_plan = resolve_workspace_file(
+                    workspace,
+                    generated["artifacts"]["responsePlanPath"],
+                )
+                staged_plan = run_dir / "response_plan.normalized.json"
+                shutil.copy2(source_plan, staged_plan)
             staged_context = run_dir / "response_context.verified.json"
             staged_context.write_text(
                 json.dumps(generated["responseContext"], indent=2, sort_keys=True),
