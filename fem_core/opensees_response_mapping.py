@@ -50,6 +50,24 @@ def resolve_opensees_response_access(
             "referenceFrame": "GLOBAL",
         }
 
+    if quantity == "VELOCITY" and target_type == "NODE" and component in {"X", "Y"}:
+        return {
+            "access": "NODE_VEL",
+            "dof": NODE_DOF[str(component)],
+            "referenceFrame": "GLOBAL",
+        }
+
+    if (
+        quantity in {"ACCELERATION", "RELATIVE_ACCELERATION"}
+        and target_type == "NODE"
+        and component in {"X", "Y"}
+    ):
+        return {
+            "access": "NODE_ACCEL",
+            "dof": NODE_DOF[str(component)],
+            "referenceFrame": "GLOBAL",
+        }
+
     if (
         quantity in {"REACTION_FORCE", "REACTION_MOMENT"}
         and target_type == "NODE"
@@ -83,11 +101,16 @@ def resolve_opensees_response_access(
 def derive_response_unit(channel: dict[str, Any], model_units: dict[str, str]) -> str:
     force = model_units["force"]
     length = model_units["length"]
+    time = model_units["time"]
     quantity = channel.get("quantity")
     component = channel.get("component")
 
     if quantity == "DISPLACEMENT":
         return length
+    if quantity == "VELOCITY":
+        return f"{length}/{time}"
+    if quantity in {"ACCELERATION", "RELATIVE_ACCELERATION"}:
+        return f"{length}/{time}2"
     if quantity == "REACTION_FORCE":
         return force
     if quantity == "REACTION_MOMENT":
