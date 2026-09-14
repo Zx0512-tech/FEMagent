@@ -9,12 +9,14 @@ import type {
   FemAnalysisResponseMapping as FemAnalysisResponseMappingV1,
   FemAnalysisSpecIssue,
   FemEngineeringAnalysisSpecV2Input,
-  FemEngineeringModelSpecInput,
-  FemModelSpecValidation,
   FemOpenSeesAnalysisBlockedResult as FemOpenSeesAnalysisBlockedResultV1,
   FemOpenSeesAnalysisRenderArtifacts,
   FemOpenSeesAnalysisRenderedResult as FemOpenSeesAnalysisRenderedResultV1,
 } from "./analysisSpecTypesLegacy.js";
+import type {
+  FemEngineeringModelSpecInput,
+  FemModelSpecValidation,
+} from "./modelSpecTypes.js";
 
 export type FemAnalysisReadinessProfileV2 =
   | "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"
