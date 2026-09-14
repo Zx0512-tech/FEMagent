@@ -7,9 +7,9 @@ from fem_core.solvers.base import SolverAdapter
 def get_solver_adapter(name: str) -> SolverAdapter:
     normalized = str(name).strip().lower()
     if normalized in {"opensees", "openseespy"}:
-        from fem_core.solvers.opensees_python import OpenSeesBundleAdapter
+        from fem_core.solvers.opensees_v2_admission import OpenSeesV2BundleAdapter
 
-        return OpenSeesBundleAdapter()
+        return OpenSeesV2BundleAdapter()
     if normalized in {"ansys", "mapdl", "ansys-mapdl"}:
         from fem_core.solvers.ansys import AnsysAdapter
 
