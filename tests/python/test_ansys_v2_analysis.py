@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from fem_core.errors import FemCoreError
 from fem_core.model_inspection import inspect_model
+from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.ansys_v2_analysis import (
     ANSYS_V2_PROFILE,
     build_ansys_v2_execution_plan,
@@ -250,3 +252,145 @@ def test_ansys_v2_control_injection_is_staged_only_and_deterministic(tmp_path: P
     assert staged[solve_index - 1] == "/INPUT,'femagent_analysis_v2','mac'"
     assert injection["injected"] is True
     assert len(control["macroSha256"]) == 64
+
+
+def _fake_ansys_runtime(tmp_path: Path) -> Path:
+    executable = tmp_path / "ansys_pr29_fake"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "input_path = Path(args[args.index('-i') + 1]).resolve()\n"
+        "output_path = Path(args[args.index('-o') + 1]).resolve()\n"
+        "job_name = args[args.index('-j') + 1]\n"
+        "output_path.write_text('FAKE ANSYS PR29 OK\\n', encoding='utf-8')\n"
+        "if input_path.name != 'build_only.inp':\n"
+        "    text = input_path.read_text(encoding='utf-8')\n"
+        "    assert \"/INPUT,'femagent_load','mac'\" in text\n"
+        "    assert \"/INPUT,'femagent_analysis_v2','mac'\" in text\n"
+        "    assert (Path.cwd() / 'femagent_load.mac').is_file()\n"
+        "    assert (Path.cwd() / 'femagent_analysis_v2.mac').is_file()\n"
+        "    (Path.cwd() / f'{job_name}.rst').write_bytes(b'FEMagent PR29 fake RST')\n",
+        encoding="utf-8",
+    )
+    executable.chmod(executable.stat().st_mode | 0o111)
+    return executable
+
+
+def _solver_options(
+    tmp_path: Path,
+    model_path: str,
+    analysis: dict,
+) -> dict:
+    return {
+        "modelUnits": {"length": "m", "time": "s"},
+        "ansysV2": {
+            "analysisSpec": analysis,
+            "confirmedBundleFingerprint": _confirmed_bundle(tmp_path, model_path),
+        },
+    }
+
+
+def test_ansys_adapter_preflight_admits_v2_uniform_base_without_external_load_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+
+    report = get_solver_adapter("ansys").preflight(
+        tmp_path,
+        model_path=model_path,
+        load_path=None,
+        solver_options=_solver_options(tmp_path, model_path, analysis),
+    )
+
+    assert report["status"] == "READY"
+    checks = {item["code"]: item["status"] for item in report["checks"]}
+    assert checks["ANSYS_V2_ANALYSIS_ADMISSION"] == "PASSED"
+    assert checks["CANONICAL_LOAD_INJECTION"] == "PASSED"
+    assert checks["BUILD_ONLY_INSPECTION"] == "PASSED"
+    assert report["executionEstimate"] == {
+        "mode": "ANSYS_APDL_V2_UNIFORM_BASE",
+        "analysisSteps": 2,
+    }
+    admission = report["analysisAdmission"]
+    assert admission["status"] == "ADMITTED"
+    assert admission["profile"] == ANSYS_V2_PROFILE
+    assert "canonicalLoad" not in admission
+    assert "loadHook" not in admission
+    assert "solveHook" not in admission
+
+
+def test_ansys_adapter_v2_forbids_parallel_external_load_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+
+    with pytest.raises(FemCoreError) as exc_info:
+        get_solver_adapter("ansys").preflight(
+            tmp_path,
+            model_path=model_path,
+            load_path=load_path,
+            solver_options=_solver_options(tmp_path, model_path, analysis),
+        )
+
+    assert exc_info.value.code == "ANSYS_V2_EXTERNAL_LOAD_PATH_FORBIDDEN"
+
+
+def test_ansys_adapter_v2_run_records_admission_controls_and_preserves_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+    source = tmp_path / model_path
+    before = source.read_bytes()
+    options = _solver_options(tmp_path, model_path, analysis)
+
+    run = get_solver_adapter("ansys").run(
+        tmp_path,
+        model_path=model_path,
+        load_path=None,
+        solver_options=options,
+    )
+
+    assert source.read_bytes() == before
+    assert run["status"] == "COMPLETED"
+    assert run["analysis"]["type"] == "TRANSIENT_UNIFORM_EXCITATION_V2"
+    assert run["analysis"]["profile"] == ANSYS_V2_PROFILE
+    assert run["analysis"]["analysisSpecFingerprint"] == run["analysisAdmission"][
+        "analysisSpecFingerprint"
+    ]
+    assert run["analysisAdmission"]["binding"]["mode"] == "EXPLICIT_BUNDLE_CONFIRMATION"
+    assert len(run["executionInputFingerprint"]) == 64
+    assert len(run["outputs"]["generatedAnalysisControlSha256"]) == 64
+    assert len(run["outputs"]["generatedLoadMacroSha256"]) == 64
+    assert len(run["outputs"]["binaryResultSha256"]) == 64
+
+    staged_root = tmp_path / run["outputs"]["stagedBundleRoot"]
+    staged_model = staged_root / "model.inp"
+    lines = staged_model.read_text(encoding="utf-8").splitlines()
+    antype_index = lines.index("ANTYPE,TRANS")
+    solve_index = lines.index("SOLVE")
+    assert lines[antype_index + 1] == "/INPUT,'femagent_load','mac'"
+    assert lines[solve_index - 1] == "/INPUT,'femagent_analysis_v2','mac'"
+    assert (tmp_path / run["outputs"]["generatedAnalysisControl"]).is_file()
+
+
+def test_pr29_fake_runtime_is_executable_on_posix(tmp_path: Path) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    if os.name != "nt":
+        assert os.access(executable, os.X_OK)
