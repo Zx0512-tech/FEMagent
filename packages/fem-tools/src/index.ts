@@ -189,7 +189,10 @@ export {
 } from "./semanticTypes.js";
 export {
   type FemAnsysModelUnits,
+  type FemAnsysV2Admission,
+  type FemAnsysV2Damping,
   type FemAnsysV2Options,
+  type FemAnsysV2ResultRequest,
   type FemSolverDisplayName,
   type FemSolverExecutionMode,
   type FemSolverKey,
