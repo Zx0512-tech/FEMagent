@@ -21,6 +21,12 @@ from fem_core.solvers.ansys_runner import (
     stage_ansys_bundle,
     write_build_only_wrapper,
 )
+from fem_core.solvers.ansys_v2_analysis import (
+    build_ansys_v2_execution_plan,
+    inject_ansys_v2_controls,
+    public_ansys_v2_admission,
+    write_ansys_v2_control_macro,
+)
 from fem_core.solvers.base import SolverAdapter
 
 _ANSYS_EXECUTABLE_ENV = "FEM_ANSYS_EXECUTABLE"
@@ -64,6 +70,73 @@ def _model_units(solver_options: dict[str, Any] | None) -> dict[str, str]:
             "ANSYS canonical load injection requires solverOptions.modelUnits",
         )
     return {str(key): str(value) for key, value in model_units.items()}
+
+
+def _ansys_v2_context(
+    solver_options: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(solver_options, dict) or "ansysV2" not in solver_options:
+        return None
+    raw = solver_options.get("ansysV2")
+    if not isinstance(raw, dict):
+        raise FemCoreError(
+            "INVALID_ANSYS_V2_OPTIONS",
+            "solverOptions.ansysV2 must be a JSON object",
+        )
+    analysis_spec = raw.get("analysisSpec")
+    confirmed = raw.get("confirmedBundleFingerprint")
+    if not isinstance(analysis_spec, dict):
+        raise FemCoreError(
+            "INVALID_ANSYS_V2_OPTIONS",
+            "solverOptions.ansysV2.analysisSpec must be an EngineeringAnalysisSpec object",
+        )
+    if not isinstance(confirmed, str) or len(confirmed) != 64:
+        raise FemCoreError(
+            "INVALID_ANSYS_V2_OPTIONS",
+            "solverOptions.ansysV2.confirmedBundleFingerprint must be a SHA-256 fingerprint",
+        )
+    return {
+        "analysisSpec": analysis_spec,
+        "confirmedBundleFingerprint": confirmed,
+    }
+
+
+def _ansys_v2_plan(
+    workspace: Path,
+    *,
+    model_path: str,
+    solver_options: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    context = _ansys_v2_context(solver_options)
+    if context is None:
+        return None
+    return build_ansys_v2_execution_plan(
+        workspace,
+        model_path=model_path,
+        analysis_spec=context["analysisSpec"],
+        model_units=_model_units(solver_options),
+        confirmed_bundle_fingerprint=context["confirmedBundleFingerprint"],
+    )
+
+
+def _ansys_v2_execution_fingerprint(
+    *,
+    legacy_fingerprint: str,
+    plan: dict[str, Any],
+    control: dict[str, Any],
+    control_injection: dict[str, Any],
+) -> str:
+    payload = json.dumps(
+        {
+            "legacyExecutionInputFingerprint": legacy_fingerprint,
+            "executionIntentFingerprint": plan["executionIntentFingerprint"],
+            "controlMacroSha256": control["macroSha256"],
+            "stagedControlHookSha256": control_injection["stagedHookFileSha256"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(payload).hexdigest()
 
 
 def _canonical_load_summary(
@@ -187,6 +260,7 @@ class AnsysAdapter(SolverAdapter):
                 "BUILD_ONLY_INSPECTION",
                 "STAGED_EXECUTION",
                 "CANONICAL_UNIFORM_EXCITATION",
+                "ENGINEERING_ANALYSIS_SPEC_V2_UNIFORM_BASE",
             ],
         }
 
@@ -335,22 +409,36 @@ class AnsysAdapter(SolverAdapter):
         load_path: str | None = None,
         solver_options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        v2_plan = _ansys_v2_plan(
+            workspace,
+            model_path=model_path,
+            solver_options=solver_options,
+        )
+        if v2_plan is not None and load_path is not None:
+            raise FemCoreError(
+                "ANSYS_V2_EXTERNAL_LOAD_PATH_FORBIDDEN",
+                "ANSYS V2 execution takes its load artifact only from AnalysisSpec",
+            )
+
         inspection = self._inspection(workspace, model_path)
         status = self.status()
         eligibility = str(inspection["validation"]["executionEligibility"])
         model_safe = eligibility not in {"REJECTED", "INCOMPLETE"}
         bundle_valid = inspection["bundle"]["integrity"] == "VALID"
+        effective_load_path = (
+            str(v2_plan["load"]["path"]) if v2_plan is not None else load_path
+        )
 
         canonical_load: dict[str, Any] | None = None
         injection_hook: dict[str, Any] | None = None
         load_file: Path | None = None
         load_error: FemCoreError | None = None
-        if load_path:
+        if effective_load_path:
             try:
                 load_file, canonical_load, injection_hook = self._canonical_plan(
                     workspace,
                     inspection=inspection,
-                    load_path=load_path,
+                    load_path=effective_load_path,
                     solver_options=solver_options,
                 )
             except FemCoreError as exc:
@@ -362,7 +450,7 @@ class AnsysAdapter(SolverAdapter):
             status["available"]
             and model_safe
             and bundle_valid
-            and (not load_path or load_error is None)
+            and (not effective_load_path or load_error is None)
         )
         if can_build:
             try:
@@ -373,7 +461,11 @@ class AnsysAdapter(SolverAdapter):
                     injection_hook=injection_hook,
                 )
             except FemCoreError as exc:
-                build_error = {"code": exc.code, "message": exc.message, "details": exc.details}
+                build_error = {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                }
 
         build_status = "PASSED" if build is not None else "FAILED" if can_build else "SKIPPED"
         checks = [
@@ -381,13 +473,15 @@ class AnsysAdapter(SolverAdapter):
             {"code": "ANSYS_MODEL_STATIC_SAFETY", "status": "PASSED" if model_safe else "FAILED"},
             {"code": "MODEL_BUNDLE_INTEGRITY", "status": "PASSED" if bundle_valid else "FAILED"},
         ]
-        if load_path:
+        if effective_load_path:
             checks.append(
                 {
                     "code": "CANONICAL_LOAD_INJECTION",
                     "status": "PASSED" if load_error is None else "FAILED",
                 }
             )
+        if v2_plan is not None:
+            checks.append({"code": "ANSYS_V2_ANALYSIS_ADMISSION", "status": "PASSED"})
         checks.append({"code": "BUILD_ONLY_INSPECTION", "status": build_status})
 
         warnings: list[dict[str, Any]] = []
@@ -400,10 +494,10 @@ class AnsysAdapter(SolverAdapter):
                 }
             )
 
-        if not load_path:
+        if not effective_load_path:
             load_report: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
         elif load_error is not None:
-            load_report = _failed_load_summary(workspace, load_path, load_error)
+            load_report = _failed_load_summary(workspace, effective_load_path, load_error)
         else:
             assert load_file is not None
             assert canonical_load is not None
@@ -418,7 +512,7 @@ class AnsysAdapter(SolverAdapter):
             )
 
         ready = all(check["status"] == "PASSED" for check in checks)
-        return {
+        report: dict[str, Any] = {
             "schemaVersion": "1.0",
             "kind": "solver_preflight",
             "solver": "ANSYS",
@@ -436,8 +530,18 @@ class AnsysAdapter(SolverAdapter):
                 "buildInspection": build,
             },
             "load": load_report,
-            "executionEstimate": {"mode": "ANSYS_APDL_BUNDLE", "analysisSteps": None},
+            "executionEstimate": {
+                "mode": "ANSYS_APDL_V2_UNIFORM_BASE"
+                if v2_plan is not None
+                else "ANSYS_APDL_BUNDLE",
+                "analysisSteps": (
+                    int(v2_plan["time"]["analysisSteps"]) if v2_plan is not None else None
+                ),
+            },
         }
+        if v2_plan is not None:
+            report["analysisAdmission"] = public_ansys_v2_admission(v2_plan)
+        return report
 
     def run(
         self,
@@ -460,19 +564,36 @@ class AnsysAdapter(SolverAdapter):
                 details={"checks": preflight["checks"], "load": preflight["load"]},
             )
 
+        v2_plan = _ansys_v2_plan(
+            workspace,
+            model_path=model_path,
+            solver_options=solver_options,
+        )
+        if v2_plan is not None and load_path is not None:
+            raise FemCoreError(
+                "ANSYS_V2_EXTERNAL_LOAD_PATH_FORBIDDEN",
+                "ANSYS V2 execution takes its load artifact only from AnalysisSpec",
+            )
+
         inspection = self._inspection(workspace, model_path)
         status = self.status()
         if not status["available"] or not status["configuredPath"]:
-            raise FemCoreError("SOLVER_UNAVAILABLE", "ANSYS runtime became unavailable after preflight")
+            raise FemCoreError(
+                "SOLVER_UNAVAILABLE",
+                "ANSYS runtime became unavailable after preflight",
+            )
 
+        effective_load_path = (
+            str(v2_plan["load"]["path"]) if v2_plan is not None else load_path
+        )
         canonical_load: dict[str, Any] | None = None
         injection_hook: dict[str, Any] | None = None
         load_file: Path | None = None
-        if load_path:
+        if effective_load_path:
             load_file, canonical_load, injection_hook = self._canonical_plan(
                 workspace,
                 inspection=inspection,
-                load_path=load_path,
+                load_path=effective_load_path,
                 solver_options=solver_options,
             )
 
@@ -504,6 +625,25 @@ class AnsysAdapter(SolverAdapter):
                 load=canonical_load,
                 artifacts=generated_load,
                 hook=injection_hook,
+            )
+
+        generated_control: dict[str, Any] | None = None
+        control_injection: dict[str, Any] | None = None
+        if v2_plan is not None:
+            assert execution_input_fingerprint is not None
+            generated_control = write_ansys_v2_control_macro(
+                staged["workingDirectory"],
+                v2_plan,
+            )
+            control_injection = inject_ansys_v2_controls(
+                staged["stageRoot"],
+                v2_plan["solveHook"],
+            )
+            execution_input_fingerprint = _ansys_v2_execution_fingerprint(
+                legacy_fingerprint=execution_input_fingerprint,
+                plan=v2_plan,
+                control=generated_control,
+                control_injection=control_injection,
             )
 
         runtime_output = run_dir / "ansys.out"
@@ -539,7 +679,10 @@ class AnsysAdapter(SolverAdapter):
         if canonical_load is None:
             load_report: dict[str, Any] = {"mode": "MODEL_SCRIPT_MANAGED"}
             injection_report: dict[str, Any] = {"injected": False}
-            analysis = {"type": "MODEL_SCRIPT", "managedBy": "ANSYS_APDL_BUNDLE"}
+            analysis: dict[str, Any] = {
+                "type": "MODEL_SCRIPT",
+                "managedBy": "ANSYS_APDL_BUNDLE",
+            }
         else:
             assert load_file is not None
             assert injection_hook is not None
@@ -569,6 +712,25 @@ class AnsysAdapter(SolverAdapter):
                 "managedBy": "FEMAGENT_CANONICAL_LOAD_APPLICATION_V1",
             }
 
+        if v2_plan is not None:
+            assert generated_control is not None
+            assert control_injection is not None
+            injection_report["analysisControl"] = {
+                "includeCommand": generated_control["includeCommand"],
+                "macroSha256": generated_control["macroSha256"],
+                "stagedHookFileSha256": control_injection["stagedHookFileSha256"],
+            }
+            analysis = {
+                "type": "TRANSIENT_UNIFORM_EXCITATION_V2",
+                "managedBy": "FEMAGENT_ANSYS_V2_ANALYSIS",
+                "profile": v2_plan["profile"],
+                "analysisSpecFingerprint": v2_plan["analysisSpecFingerprint"],
+                "declaredModelSpecFingerprint": v2_plan["declaredModelSpecFingerprint"],
+                "damping": v2_plan["damping"],
+                "time": v2_plan["time"],
+                "resultRequests": v2_plan["resultRequests"],
+            }
+
         fingerprint_payload = json.dumps(
             {
                 "solver": "ANSYS",
@@ -591,18 +753,26 @@ class AnsysAdapter(SolverAdapter):
         }
         if generated_load is not None:
             outputs["generatedLoadTable"] = workspace_relative_path(
-                workspace, Path(generated_load["tablePath"])
+                workspace,
+                Path(generated_load["tablePath"]),
             )
             outputs["generatedLoadTableSha256"] = generated_load["tableSha256"]
             outputs["generatedLoadMacro"] = workspace_relative_path(
-                workspace, Path(generated_load["macroPath"])
+                workspace,
+                Path(generated_load["macroPath"]),
             )
             outputs["generatedLoadMacroSha256"] = generated_load["macroSha256"]
+        if generated_control is not None:
+            outputs["generatedAnalysisControl"] = workspace_relative_path(
+                workspace,
+                Path(generated_control["macroPath"]),
+            )
+            outputs["generatedAnalysisControlSha256"] = generated_control["macroSha256"]
         if binary_result is not None:
             outputs["binaryResult"] = workspace_relative_path(workspace, binary_result)
             outputs["binaryResultSha256"] = _sha256_file(binary_result)
 
-        manifest = {
+        manifest: dict[str, Any] = {
             "schemaVersion": "1.0",
             "kind": "solver_run",
             "runId": run_id,
@@ -632,5 +802,11 @@ class AnsysAdapter(SolverAdapter):
             },
             "outputs": outputs,
         }
-        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+        if v2_plan is not None:
+            manifest["analysisAdmission"] = public_ansys_v2_admission(v2_plan)
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
         return manifest
+
