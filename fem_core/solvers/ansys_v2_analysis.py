@@ -26,7 +26,7 @@ ANSYS_V2_PROFILE = "ANSYS_APDL_TRANSIENT_UNIFORM_BASE_V2"
 ANSYS_V2_ADMISSION_SCHEMA = "FEMAGENT_ANSYS_V2_EXECUTION_ADMISSION_V1"
 _CONTROL_MACRO_NAME = "femagent_analysis_v2"
 _SOLVE_COMMANDS = frozenset({"SOLVE", "LSSOLVE", "MSSOLVE", "PSOLVE"})
-_DAMPING_COMMANDS = frozenset({"ALPHAD", "BETAD", "DMPR"})
+_DAMPING_COMMANDS = frozenset({"ALPHAD", "BETAD", "DMPR", "DMPRAT", "DMPSTR", "MDAMP"})
 _SUPPORTED_RESULT_QUANTITIES = frozenset({"DISPLACEMENT", "REACTION_FORCE"})
 _COMPONENT_TO_DOF = {"X": "UX", "Y": "UY"}
 _TIME_ABS_TOL = 1e-12
@@ -139,7 +139,7 @@ def _static_control_evidence(
                         "command": command,
                     }
                 )
-            elif keyword == "MP" and len(fields) >= 2 and fields[1] in {"ALPD", "BETD"}:
+            elif keyword == "MP" and len(fields) >= 2 and fields[1] in {"ALPD", "BETD", "DMPR"}:
                 damping_conflicts.append(
                     {
                         "path": source_path,
