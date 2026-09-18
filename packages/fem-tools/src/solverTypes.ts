@@ -18,6 +18,53 @@ export interface FemAnsysV2Options {
   confirmedBundleFingerprint: string;
 }
 
+export interface FemAnsysV2ResultRequest {
+  requestId: string;
+  quantity: "DISPLACEMENT" | "REACTION_FORCE";
+  target: { type: "NODE"; id: number };
+  component: "X" | "Y";
+}
+
+export type FemAnsysV2Damping =
+  | { type: "NONE" }
+  | { type: "RAYLEIGH"; alphaM: number; betaK: number };
+
+export interface FemAnsysV2Admission {
+  schema: "FEMAGENT_ANSYS_V2_EXECUTION_ADMISSION_V1";
+  status: "ADMITTED";
+  profile: "ANSYS_APDL_TRANSIENT_UNIFORM_BASE_V2";
+  analysisSpecFingerprint: string;
+  declaredModelSpecFingerprint: string;
+  binding: {
+    mode: "EXPLICIT_BUNDLE_CONFIRMATION";
+    confirmedBundleFingerprint: string;
+    currentBundleFingerprint: string;
+  };
+  modelUnits: FemAnsysModelUnits;
+  load: {
+    path: string;
+    sha256: string;
+    format: "FEMAGENT_LOAD_CSV_V1";
+    loadKind: "EARTHQUAKE";
+    applicationType: "UNIFORM_EXCITATION";
+    component: "X" | "Y";
+    quantity: "ACCELERATION";
+    canonicalUnit: "m/s2";
+    modelUnit: string;
+    accelerationFactorFromMPerS2: number;
+    sampleCount: number;
+  };
+  time: {
+    timeStepModel: number;
+    durationModel: number;
+    analysisSteps: number;
+    timeUnit: "s" | "ms";
+  };
+  damping: FemAnsysV2Damping;
+  resultRequests: FemAnsysV2ResultRequest[];
+  executionIntentFingerprint: string;
+}
+
 export interface FemSolverOptions {
   modelUnits?: FemAnsysModelUnits;
   ansysV2?: FemAnsysV2Options;
@@ -51,6 +98,7 @@ export interface FemSolverPreflight<S extends FemSolverKey = FemSolverKey> {
   model: Record<string, unknown>;
   load: Record<string, unknown>;
   responsePlan?: Record<string, unknown> | null;
+  analysisAdmission?: FemAnsysV2Admission;
   executionEstimate: {
     analysisSteps: number | null;
     mode?: string;
@@ -76,6 +124,7 @@ export interface FemSolverRun<S extends FemSolverKey = FemSolverKey> {
   model: Record<string, unknown>;
   load: Record<string, unknown>;
   responsePlan?: Record<string, unknown> | null;
+  analysisAdmission?: FemAnsysV2Admission;
   injection?: Record<string, unknown>;
   analysis: Record<string, unknown>;
   summary: Record<string, unknown>;
