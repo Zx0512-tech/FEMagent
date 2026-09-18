@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from fem_core import result_intelligence_legacy as _result_legacy
 from fem_core.analysis_requirements import complete_engineering_analysis_requirement
 from fem_core.analysis_spec import evaluate_engineering_analysis_readiness, render_opensees_analysis
 from fem_core.errors import FemCoreError
@@ -16,7 +17,6 @@ from fem_core.model_inspection import inspect_model
 from fem_core.model_spec import validate_engineering_model_spec
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.result_intelligence import inspect_result, query_result
-from fem_core import result_intelligence_legacy as _result_legacy
 from fem_core.solvers import get_solver_adapter
 
 WORKFLOW_SCHEMA = "FEMAGENT_EARTHQUAKE_WORKFLOW_V1"
