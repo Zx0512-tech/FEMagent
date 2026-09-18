@@ -2,9 +2,9 @@
 
 ## Status
 
-**Implementation complete; fresh full-suite verification deferred.**
+**Implementation complete; fresh full-suite verification is green.**
 
-The repository owner's GitHub Actions quota is exhausted for the current billing month. PR29 therefore remains Draft and must not be described as CI-green until a fresh runner executes the standard suite.
+Fresh GitHub Actions CI #633 (run id `35351009091`) completed successfully on the implementation head after the PR28 bridge-compatibility sync and PR29 Ruff fixes.
 
 ## Implemented acceptance surface
 
@@ -48,9 +48,19 @@ The repository owner's GitHub Actions quota is exhausted for the current billing
 - no new ANSYS-specific LLM-visible execution tool;
 - bundle-fingerprint / semantic-equivalence guidance presence.
 
-## Verification required when Actions quota returns
+## Fresh verification
 
-Run from the PR29 head:
+The standard repository verification completed successfully:
+
+- Typecheck — PASS
+- TypeScript engineering bridge tests — PASS
+- Python engineering core tests — PASS
+- Ruff — PASS
+- OpenSees adapter availability smoke — PASS
+- ANSYS result reader import smoke — PASS
+- FEM health smoke — PASS
+
+The commands exercised by CI are:
 
 ```bash
 pnpm typecheck
@@ -62,14 +72,14 @@ python -c "from ansys.mapdl import reader; assert callable(reader.read_binary)"
 pnpm fem:health
 ```
 
-Then specifically inspect the PR29 focused tests:
+PR29-focused acceptance tests are included in the full Python/TypeScript suites and can also be run directly:
 
 ```bash
 python -m pytest tests/python/test_ansys_v2_analysis.py -q
 pnpm exec tsx --test tests/ts/engineering-tools.test.ts
 ```
 
-Only after these are green should PR29 move from Draft to Ready for Review.
+These checks are green on CI #633. A final documentation-only head CI must remain green before the PR is marked Ready for Review.
 
 ## Known intentional limitation
 
