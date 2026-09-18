@@ -8,6 +8,7 @@ from fem_core.analysis_spec import evaluate_engineering_analysis_readiness
 from fem_core.analysis_spec.opensees_renderer_v2 import render_opensees_analysis
 from fem_core.errors import FemCoreError
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
+from fem_core.solvers import get_solver_adapter
 
 _PR28_ANALYSIS_COMMANDS = {"analysis.readiness", "analysis.renderOpenSees"}
 
@@ -66,7 +67,11 @@ def _handle_pr28_analysis_command(
 def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
     if isinstance(request, dict) and request.get("command") in _PR28_ANALYSIS_COMMANDS:
         return _handle_pr28_analysis_command(request, workspace=workspace)
-    return _legacy.handle_request(request, workspace=workspace)
+    return _legacy.handle_request(
+        request,
+        workspace=workspace,
+        solver_adapter_factory=get_solver_adapter,
+    )
 
 
-__all__ = ["handle_request"]
+__all__ = ["get_solver_adapter", "handle_request"]
