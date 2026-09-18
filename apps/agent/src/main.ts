@@ -20,6 +20,7 @@ const resourceLoader = new DefaultResourceLoader({
     resolve(cwd, ".pi/extensions/requirement-tools.ts"),
     resolve(cwd, ".pi/extensions/model-spec-tools.ts"),
     resolve(cwd, ".pi/extensions/analysis-spec-tools.ts"),
+    resolve(cwd, ".pi/extensions/analysis-requirement-tools.ts"),
   ],
 });
 await resourceLoader.reload();
@@ -41,6 +42,7 @@ const { session } = await createAgentSession({
     "fem_model_spec_readiness",
     "fem_model_render_opensees",
     "fem_analysis_spec_validate",
+    "fem_analysis_requirement_complete",
     "fem_analysis_prepare_opensees",
     "fem_load_inspect",
     "fem_load_standardize",
