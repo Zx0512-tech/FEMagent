@@ -118,6 +118,8 @@ def test_ansys_v2_uniform_base_plan_is_admitted_from_exact_bundle_and_artifact(
     assert plan["profile"] == ANSYS_V2_PROFILE
     assert plan["binding"]["mode"] == "EXPLICIT_BUNDLE_CONFIRMATION"
     assert plan["binding"]["confirmedBundleFingerprint"] == plan["binding"]["currentBundleFingerprint"]
+    assert plan["binding"]["targetIdPolicy"] == "IDENTITY"
+    assert plan["binding"]["semanticEquivalence"] == "NOT_MACHINE_PROVEN"
     assert plan["load"]["sha256"] == load_sha
     assert plan["time"] == {
         "timeStepModel": 0.01,
