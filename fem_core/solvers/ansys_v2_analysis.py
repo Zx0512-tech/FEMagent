@@ -131,15 +131,11 @@ def _static_control_evidence(
                     }
                 )
 
-            if keyword in _DAMPING_COMMANDS:
-                damping_conflicts.append(
-                    {
-                        "path": source_path,
-                        "line": line_number,
-                        "command": command,
-                    }
-                )
-            elif keyword == "MP" and len(fields) >= 2 and fields[1] in {"ALPD", "BETD", "DMPR"}:
+            if keyword in _DAMPING_COMMANDS or (
+                keyword == "MP"
+                and len(fields) >= 2
+                and fields[1] in {"ALPD", "BETD", "DMPR"}
+            ):
                 damping_conflicts.append(
                     {
                         "path": source_path,
