@@ -1,4 +1,22 @@
 export {
+  type FemAnalysisRequirementCompletion,
+  type FemAnalysisRequirementCompletionStatus,
+  type FemAnalysisRequirementEvidence,
+  type FemAnalysisRequirementFact,
+  type FemAnalysisRequirementGap,
+  type FemAnalysisRequirementIntent,
+  type FemAnalysisRequirementSemanticContext,
+  type FemAnalysisRequirementSource,
+  type FemAnalysisRequirementTarget,
+  type FemEngineeringAnalysisRequirementDraft,
+  type FemExcitationComponentAnalysisFact,
+  type FemLoadSelectionAnalysisFact,
+  type FemNoDampingAnalysisFact,
+  type FemRayleighDampingAnalysisFact,
+  type FemResultRequestAnalysisFact,
+} from "./analysisRequirementTypes.js";
+export { runFemAnalysisRequirementComplete } from "./analysisRequirementCompletion.js";
+export {
   type FemAnalysisElementGeneralizedForceRequest,
   type FemAnalysisElementLocalForceMapping,
   type FemAnalysisEmptyUnits,
