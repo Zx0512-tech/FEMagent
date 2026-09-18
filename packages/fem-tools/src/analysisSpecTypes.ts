@@ -24,6 +24,11 @@ export type FemAnalysisReadinessProfileV2 =
   | "OPENSEES_FRAME_2D_TRANSIENT_NODAL_FORCE_V2"
   | "OPENSEES_FRAME_2D_TRANSIENT_UNIFORM_BASE_V2";
 
+export type FemAnalysisNodeDisplacementMappingV2 =
+  Omit<FemAnalysisNodeDispMapping, "referenceFrame"> & {
+    referenceFrame: "GLOBAL" | "RELATIVE";
+  };
+
 export interface FemAnalysisNodeVelocityMapping {
   requestId: string;
   quantity: "VELOCITY";
@@ -68,6 +73,7 @@ export interface FemAnalysisModalModeShapeMapping {
 
 export type FemAnalysisResponseMappingV2 =
   | FemAnalysisResponseMappingV1
+  | FemAnalysisNodeDisplacementMappingV2
   | FemAnalysisNodeVelocityMapping
   | FemAnalysisNodeAccelerationMapping
   | FemAnalysisModalEigenvalueMapping
