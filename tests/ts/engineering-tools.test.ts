@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -148,6 +148,16 @@ test("ANSYS V2 uniform-base intent is carried only through typed generic solver 
   );
   assert.equal(ansysV2SolverOptionsTypeContract.ansysV2?.confirmedBundleFingerprint.length, 64);
 });
+
+test("PR29 keeps ANSYS V2 behind the existing generic solver tools", async () => {
+  const source = await readFile(".pi/extensions/fem-tools.ts", "utf8");
+  assert.match(source, /ansysV2/);
+  assert.match(source, /confirmedBundleFingerprint/);
+  assert.match(source, /semanticEquivalence/);
+  assert.doesNotMatch(source, /name:\s*"fem_ansys_v2_/);
+  assert.doesNotMatch(source, /name:\s*"fem_earthquake_run"/);
+});
+
 
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
