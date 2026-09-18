@@ -165,6 +165,63 @@ def test_ansys_v2_plan_rereads_external_artifact_and_detects_tamper(tmp_path: Pa
     assert exc_info.value.code == "TRANSIENT_ARTIFACT_HASH_MISMATCH"
 
 
+
+def test_ansys_v2_plan_rejects_time_step_mismatch(tmp_path: Path) -> None:
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+    analysis["definition"]["time"]["timeStep"] = 0.02
+
+    with pytest.raises(FemCoreError) as exc_info:
+        build_ansys_v2_execution_plan(
+            tmp_path,
+            model_path=model_path,
+            analysis_spec=analysis,
+            model_units={"length": "m", "time": "s"},
+            confirmed_bundle_fingerprint=_confirmed_bundle(tmp_path, model_path),
+        )
+
+    assert exc_info.value.code == "ANSYS_V2_TIME_STEP_MISMATCH"
+
+
+def test_ansys_v2_plan_rejects_load_component_mismatch(tmp_path: Path) -> None:
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path, component="Y")
+
+    with pytest.raises(FemCoreError) as exc_info:
+        build_ansys_v2_execution_plan(
+            tmp_path,
+            model_path=model_path,
+            analysis_spec=_analysis(load_path, load_sha),
+            model_units={"length": "m", "time": "s"},
+            confirmed_bundle_fingerprint=_confirmed_bundle(tmp_path, model_path),
+        )
+
+    assert exc_info.value.code == "ANSYS_V2_LOAD_CHANNEL_MISMATCH"
+
+
+def test_ansys_v2_none_damping_emits_explicit_zero_rayleigh_terms(tmp_path: Path) -> None:
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+    analysis["definition"]["damping"] = {"type": "NONE"}
+    plan = build_ansys_v2_execution_plan(
+        tmp_path,
+        model_path=model_path,
+        analysis_spec=analysis,
+        model_units={"length": "m", "time": "s"},
+        confirmed_bundle_fingerprint=_confirmed_bundle(tmp_path, model_path),
+    )
+
+    stage = tmp_path / "none-damping"
+    control = write_ansys_v2_control_macro(stage, plan)
+    text = Path(control["macroPath"]).read_text(encoding="utf-8")
+
+    assert plan["damping"] == {"type": "NONE"}
+    assert "ALPHAD,0" in text
+    assert "BETAD,0" in text
+
+
 def test_ansys_v2_plan_rejects_unproven_result_quantity(tmp_path: Path) -> None:
     model_path = _model(tmp_path)
     load_path, load_sha = _load(tmp_path)
