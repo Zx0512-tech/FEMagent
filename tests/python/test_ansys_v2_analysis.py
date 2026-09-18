@@ -10,6 +10,7 @@ import pytest
 from fem_core.bridge import handle_request
 from fem_core.errors import FemCoreError
 from fem_core.protocol import BRIDGE_PROTOCOL
+from fem_core.result_intelligence import inspect_result
 from fem_core.model_inspection import inspect_model
 from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.ansys_v2_analysis import (
@@ -262,8 +263,10 @@ def _fake_ansys_runtime(tmp_path: Path) -> Path:
     executable = tmp_path / "ansys_pr29_fake"
     executable.write_text(
         "#!/usr/bin/env python3\n"
+        "import shutil\n"
         "import sys\n"
         "from pathlib import Path\n"
+        "from ansys.mapdl.reader import examples\n"
         "args = sys.argv[1:]\n"
         "input_path = Path(args[args.index('-i') + 1]).resolve()\n"
         "output_path = Path(args[args.index('-o') + 1]).resolve()\n"
@@ -275,7 +278,7 @@ def _fake_ansys_runtime(tmp_path: Path) -> Path:
         "    assert \"/INPUT,'femagent_analysis_v2','mac'\" in text\n"
         "    assert (Path.cwd() / 'femagent_load.mac').is_file()\n"
         "    assert (Path.cwd() / 'femagent_analysis_v2.mac').is_file()\n"
-        "    (Path.cwd() / f'{job_name}.rst').write_bytes(b'FEMagent PR29 fake RST')\n",
+        "    shutil.copyfile(examples.rstfile, Path.cwd() / f'{job_name}.rst')\n",
         encoding="utf-8",
     )
     executable.chmod(executable.stat().st_mode | 0o111)
@@ -392,6 +395,13 @@ def test_ansys_adapter_v2_run_records_admission_controls_and_preserves_source(
     assert lines[antype_index + 1] == "/INPUT,'femagent_load','mac'"
     assert lines[solve_index - 1] == "/INPUT,'femagent_analysis_v2','mac'"
     assert (tmp_path / run["outputs"]["generatedAnalysisControl"]).is_file()
+
+    inspected = inspect_result(tmp_path, run["runId"])
+    assert inspected["integrity"]["status"] == "VALID"
+    assert any(
+        item["quantity"] == "DISPLACEMENT"
+        for item in inspected["queryCapabilities"]
+    )
 
 
 def test_pr29_fake_runtime_is_executable_on_posix(tmp_path: Path) -> None:
