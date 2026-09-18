@@ -8,9 +8,9 @@ import pytest
 
 from fem_core.bridge import handle_request
 from fem_core.errors import FemCoreError
+from fem_core.model_inspection import inspect_model
 from fem_core.protocol import BRIDGE_PROTOCOL
 from fem_core.result_intelligence import inspect_result
-from fem_core.model_inspection import inspect_model
 from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.ansys_v2_analysis import (
     ANSYS_V2_PROFILE,
