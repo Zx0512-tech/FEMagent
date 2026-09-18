@@ -39,6 +39,8 @@ export interface FemAnsysV2Admission {
     mode: "EXPLICIT_BUNDLE_CONFIRMATION";
     confirmedBundleFingerprint: string;
     currentBundleFingerprint: string;
+    targetIdPolicy: "IDENTITY";
+    semanticEquivalence: "NOT_MACHINE_PROVEN";
   };
   modelUnits: FemAnsysModelUnits;
   load: {
