@@ -13,14 +13,23 @@ class OpenSeesV2BundleAdapter(OpenSeesBundleAdapter):
     """Extend generated-analysis admission without changing legacy execution paths."""
 
     def _admit_generated_execution(self, generated: dict[str, Any]) -> dict[str, Any]:
+        readiness = generated.get("readiness")
+        profile = readiness.get("profile") if isinstance(readiness, dict) else None
+        normalized_analysis = generated.get("normalizedAnalysisSpec")
+        requests = (
+            normalized_analysis.get("resultRequests")
+            if isinstance(normalized_analysis, dict)
+            else None
+        )
+        quantities = [
+            str(request["quantity"])
+            for request in requests or []
+            if isinstance(request, dict) and isinstance(request.get("quantity"), str)
+        ]
         return admit_analysis_execution(
             solver="opensees",
-            profile=str(generated.get("profile") or ""),
-            requested_quantities=[
-                str(item)
-                for item in generated.get("requestedQuantities", [])
-                if isinstance(item, str)
-            ],
+            profile=str(profile or ""),
+            requested_quantities=quantities,
         )
 
     def preflight(
@@ -41,10 +50,18 @@ class OpenSeesV2BundleAdapter(OpenSeesBundleAdapter):
         if isinstance(build, dict):
             inspection_id = build.get("inspectionId")
             if isinstance(inspection_id, str) and inspection_id:
-                result_path = workspace / ".femagent" / "build-inspections" / inspection_id / "worker_result.json"
+                result_path = (
+                    workspace
+                    / ".femagent"
+                    / "build-inspections"
+                    / inspection_id
+                    / "worker_result.json"
+                )
                 if result_path.is_file():
                     payload = json.loads(result_path.read_text(encoding="utf-8"))
-                    build["interceptedEigenCalls"] = int(payload.get("interceptedEigenCalls") or 0)
+                    build["interceptedEigenCalls"] = int(
+                        payload.get("interceptedEigenCalls") or 0
+                    )
         if isinstance(solver_options, dict):
             response_plan = solver_options.get("responsePlanPath")
             manifest = solver_options.get("analysisManifestPath")
@@ -57,7 +74,10 @@ class OpenSeesV2BundleAdapter(OpenSeesBundleAdapter):
                 )
                 report["executionAdmission"] = self._admit_generated_execution(generated)
                 if generated.get("executionMode") == "MODAL":
-                    report["executionEstimate"] = {"analysisSteps": None, "mode": "MODAL"}
+                    report["executionEstimate"] = {
+                        "analysisSteps": None,
+                        "mode": "MODAL",
+                    }
         return report
 
     def run(
