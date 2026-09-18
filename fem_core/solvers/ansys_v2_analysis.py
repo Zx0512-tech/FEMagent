@@ -483,6 +483,8 @@ def build_ansys_v2_execution_plan(
             "mode": "EXPLICIT_BUNDLE_CONFIRMATION",
             "confirmedBundleFingerprint": confirmed_bundle_fingerprint,
             "currentBundleFingerprint": current_bundle_fingerprint,
+            "targetIdPolicy": "IDENTITY",
+            "semanticEquivalence": "NOT_MACHINE_PROVEN",
         },
         "modelUnits": units,
         "load": load_report,
