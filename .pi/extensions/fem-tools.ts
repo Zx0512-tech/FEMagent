@@ -10,6 +10,7 @@ import {
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,
+  type FemSolverOptions,
 } from "@femagent/fem-tools";
 import { Type } from "typebox";
 
@@ -373,7 +374,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
         params.solver,
         params.modelPath,
         params.loadPath,
-        params.solverOptions,
+        params.solverOptions as FemSolverOptions | undefined,
         signal,
       );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
@@ -409,7 +410,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
         params.solver,
         params.modelPath,
         params.loadPath,
-        params.solverOptions,
+        params.solverOptions as FemSolverOptions | undefined,
         signal,
       );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
