@@ -8,6 +8,7 @@ import {
   runFemModelSpecValidate,
   runFemSolverPreflight,
   type FemEngineeringAnalysisSpecV1Input,
+  type FemEngineeringLinearStaticAnalysisSpecV2Input,
   type FemEngineeringModelSpecInput,
   type FemSolverOptions,
 } from "@femagent/fem-tools";
