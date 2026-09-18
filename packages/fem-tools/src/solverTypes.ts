@@ -1,3 +1,5 @@
+import type { FemEngineeringBaseTransientAnalysisSpecV2Input } from "./analysisSpecTypes.js";
+
 export type FemSolverKey = "opensees" | "openseespy" | "ansys";
 
 export type FemSolverDisplayName<S extends FemSolverKey = FemSolverKey> =
@@ -11,8 +13,14 @@ export interface FemAnsysModelUnits {
   time: "s" | "ms";
 }
 
+export interface FemAnsysV2Options {
+  analysisSpec: FemEngineeringBaseTransientAnalysisSpecV2Input;
+  confirmedBundleFingerprint: string;
+}
+
 export interface FemSolverOptions {
   modelUnits?: FemAnsysModelUnits;
+  ansysV2?: FemAnsysV2Options;
   responsePlanPath?: string;
   analysisManifestPath?: string;
 }
