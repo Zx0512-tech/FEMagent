@@ -68,6 +68,40 @@ test("generated OpenSees analysis admission is represented by the typed solver o
   assert.ok(preflight.checks.some((check) => check.code === "GENERATED_ANALYSIS_VERIFIED" && check.status === "PASSED"));
 });
 
+test("V2 generated OpenSees admission uses the same typed solver options without execution mode", async () => {
+  const model = await loadModel();
+  const v1 = await boundAnalysis(model);
+  const analysis: FemEngineeringLinearStaticAnalysisSpecV2Input = {
+    schemaVersion: "2.0",
+    kind: "engineering_analysis_spec",
+    modelSpecFingerprint: v1.modelSpecFingerprint,
+    analysisType: "LINEAR_STATIC",
+    units: v1.units,
+    definition: { loadCases: v1.loadCases },
+    resultRequests: v1.resultRequests,
+  };
+  const rendered = await runFemAnalysisRenderOpenSees(process.cwd(), model, analysis);
+  assert.equal(rendered.schema, "FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2");
+  assert.equal(rendered.status, "RENDERED");
+  if (rendered.status !== "RENDERED") throw new Error("expected rendered V2 analysis bundle");
+
+  const solverOptions: FemSolverOptions = {
+    responsePlanPath: rendered.artifacts.responsePlanPath,
+    analysisManifestPath: rendered.artifacts.manifestPath,
+  };
+  assert.deepEqual(Object.keys(solverOptions).sort(), ["analysisManifestPath", "responsePlanPath"]);
+
+  const preflight = await runFemSolverPreflight(
+    process.cwd(),
+    "opensees",
+    rendered.artifacts.analysisPath,
+    undefined,
+    solverOptions,
+  );
+  assert.equal(preflight.status, "READY");
+  assert.ok(preflight.checks.some((check) => check.code === "GENERATED_ANALYSIS_VERIFIED" && check.status === "PASSED"));
+});
+
 test("solver tool guidance preserves generated-analysis manifest and execution boundaries", async () => {
   const source = await readFile(path.resolve(".pi/extensions/fem-tools.ts"), "utf8");
 
