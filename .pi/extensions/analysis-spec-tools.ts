@@ -372,9 +372,9 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
     name: "fem_analysis_prepare_opensees",
     label: "Prepare OpenSees Analysis",
     description:
-      "Check or render a bound EngineeringModelSpec + EngineeringAnalysisSpec V1 through one high-level OpenSees analysis preparation capability. CHECK is read-only. RENDER writes only controlled artifacts. Neither runs a solver.",
+      "Check or render a bound EngineeringModelSpec + supported EngineeringAnalysisSpec V1/V2 through one high-level OpenSees analysis preparation capability. CHECK is read-only. RENDER writes only controlled artifacts. Neither runs a solver.",
     promptSnippet:
-      "Check joint analysis readiness or render a deterministic OpenSees linear-static V1 analysis bundle without executing it",
+      "Check joint analysis readiness or render deterministic OpenSees V1/V2 static, modal, or transient analysis bundles without executing them",
     promptGuidelines: [
       "CHECK is read-only and reruns authoritative ModelSpec validation, AnalysisSpec validation, Model Readiness, model fingerprint binding, unit compatibility, target existence, reaction restraint semantics, and proven OpenSees response mapping.",
       "RENDER writes only controlled artifacts below FEMagent's generated-analysis directory after the same readiness gate passes; callers cannot choose an artifact destination.",
@@ -388,13 +388,13 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
       {
         mode: Type.Union([Type.Literal("CHECK"), Type.Literal("RENDER")]),
         modelSpec: modelSpecSchema,
-        analysisSpec: analysisSpecV1Schema,
+        analysisSpec: analysisSpecValidationSchema,
       },
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const modelSpec = params.modelSpec as FemEngineeringModelSpecInput;
-      const analysisSpec = params.analysisSpec as FemEngineeringAnalysisSpecV1Input;
+      const analysisSpec = params.analysisSpec as FemEngineeringAnalysisSpecInput;
       const report = params.mode === "CHECK"
         ? await runFemAnalysisReadiness(ctx.cwd, modelSpec, analysisSpec, signal)
         : await runFemAnalysisRenderOpenSees(ctx.cwd, modelSpec, analysisSpec, signal);
