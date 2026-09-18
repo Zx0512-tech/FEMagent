@@ -6,19 +6,19 @@
 
 **CI note:** GitHub Actions quota is currently exhausted. Implement tests TDD-first, but do not mark final verification green until fresh CI can run.
 
-## Task 1 — ANSYS V2 admission contract
+## Task 1 — ANSYS V2 admission contract ✅ implemented
 
 Create `fem_core/solvers/ansys_v2_analysis.py` and `tests/python/test_ansys_v2_analysis.py`.
 
 Admission must validate the V2 profile, current bundle fingerprint confirmation, explicit model units, load artifact identity/channel/time, X/Y excitation only, fixed result whitelist, statically proven node targets, reaction restraint semantics, one transient hook, solve hook, and absence of conflicting ACEL/damping.
 
-## Task 2 — Deterministic PR29 staged controls
+## Task 2 — Deterministic PR29 staged controls ✅ implemented
 
 Extend `fem_core/solvers/ansys_load.py` with deterministic analysis-control construction/injection immediately before the verified solve command.
 
 Controls: full transient, AUTOTS off, exact DELTIM/TIME, NONE or RAYLEIGH coefficients, NSOL/RSOL output. Source bytes remain untouched.
 
-## Task 3 — SolverAdapter integration
+## Task 3 — SolverAdapter integration ✅ implemented
 
 Extend `AnsysAdapter.preflight/run`:
 
@@ -31,13 +31,13 @@ Extend `AnsysAdapter.preflight/run`:
 
 Legacy ANSYS loadPath behavior remains unchanged.
 
-## Task 4 — Bridge and TypeScript contract
+## Task 4 — Bridge and TypeScript contract ✅ implemented
 
 Extend `FemSolverOptions` and Pi TypeBox schema with `ansysV2.analysisSpec` and `confirmedBundleFingerprint`.
 
 Keep the existing generic solver tools. No new LLM-visible ANSYS V2 execution tool.
 
-## Task 5 — Result/provenance integration tests
+## Task 5 — Result/provenance integration tests ✅ implemented
 
 Add tests proving:
 
@@ -49,7 +49,7 @@ Add tests proving:
 - run manifest records AnalysisSpec/bundle/load/control identity;
 - generated .rst remains queryable through existing Result Intelligence contract when a real/fixture result is available.
 
-## Task 6 — Scope and regression audit
+## Task 6 — Scope and regression audit ⏸ fresh CI deferred
 
 Run, when Actions quota returns:
 
@@ -64,3 +64,7 @@ pnpm fem:health
 ```
 
 PR29 remains Draft until this fresh suite is green.
+
+## Current closeout
+
+Production code and acceptance-test contracts are implemented. GitHub Actions is intentionally not used as a completion signal while the account quota is exhausted. See `docs/verification/pr29-ansys-v2-uniform-base-earthquake.md`. PR29 stays Draft until fresh CI is green.
