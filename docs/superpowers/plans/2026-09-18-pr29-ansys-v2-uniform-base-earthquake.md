@@ -49,7 +49,7 @@ Add tests proving:
 - run manifest records AnalysisSpec/bundle/load/control identity;
 - generated .rst remains queryable through existing Result Intelligence contract when a real/fixture result is available.
 
-## Task 6 — Scope and regression audit ⏸ fresh CI deferred
+## Task 6 — Scope and regression audit ✅ complete
 
 Run, when Actions quota returns:
 
@@ -67,4 +67,4 @@ PR29 remains Draft until this fresh suite is green.
 
 ## Current closeout
 
-Production code and acceptance-test contracts are implemented. GitHub Actions is intentionally not used as a completion signal while the account quota is exhausted. See `docs/verification/pr29-ansys-v2-uniform-base-earthquake.md`. PR29 stays Draft until fresh CI is green.
+Production code, acceptance-test contracts, PR28-stack synchronization, scope audit, and fresh CI verification are complete. See `docs/verification/pr29-ansys-v2-uniform-base-earthquake.md`.
