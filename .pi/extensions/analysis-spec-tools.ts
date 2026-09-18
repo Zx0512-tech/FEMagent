@@ -350,7 +350,7 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
       "Do not invent load magnitudes, directions, target IDs, mode counts, damping coefficients, time steps, artifact hashes, result requests, units, or modelSpecFingerprint values merely to make a specification VALID.",
       "V2 MODAL supports EIGENVALUE, NATURAL_FREQUENCY, PERIOD, and NODE MODE_SHAPE X/Y/RZ requests. It does not imply that a bound model has adequate mass for eigensolution.",
       "V2 TRANSIENT supports only NODAL_TIME_HISTORY force or UNIFORM_BASE_EXCITATION acceleration with explicit NONE or RAYLEIGH damping. Uniform-base acceleration responses must state RELATIVE_ACCELERATION or ABSOLUTE_ACCELERATION rather than bare ACCELERATION.",
-      "Intrinsic validation never reads ModelSpec targets or load artifact bytes. Cross-model binding, target existence, model readiness, artifact checks, and solver mapping belong to future V2 readiness profiles.",
+      "Intrinsic validation never reads ModelSpec targets or load artifact bytes. Use fem_analysis_prepare_opensees CHECK/RENDER for current V2 cross-model binding, target existence, model readiness, artifact checks, and proven OpenSees response mapping.",
       "This tool is read-only: it never writes OpenSees/APDL files, applies loads to a solver model, calls solver preflight/run, migrates specs, or repairs engineering facts.",
       "This fine-grained validation tool is temporary. The long-term Agent tool surface should converge into high-level Analysis capabilities instead of multiplying permanent internal tools.",
     ],
