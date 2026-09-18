@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from fem_core.bridge import handle_request
 from fem_core.errors import FemCoreError
+from fem_core.protocol import BRIDGE_PROTOCOL
 from fem_core.model_inspection import inspect_model
 from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.ansys_v2_analysis import (
@@ -394,3 +396,35 @@ def test_pr29_fake_runtime_is_executable_on_posix(tmp_path: Path) -> None:
     executable = _fake_ansys_runtime(tmp_path)
     if os.name != "nt":
         assert os.access(executable, os.X_OK)
+
+
+def test_solver_bridge_transports_ansys_v2_context_without_new_command(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("FEM_ANSYS_EXECUTABLE", raising=False)
+    model_path = _model(tmp_path)
+    load_path, load_sha = _load(tmp_path)
+    analysis = _analysis(load_path, load_sha)
+
+    response = handle_request(
+        {
+            "protocol": BRIDGE_PROTOCOL,
+            "requestId": "pr29-bridge",
+            "command": "solver.preflight",
+            "payload": {
+                "solver": "ansys",
+                "modelPath": model_path,
+                "solverOptions": _solver_options(tmp_path, model_path, analysis),
+            },
+        },
+        workspace=tmp_path,
+    )
+
+    assert response["ok"] is True
+    report = response["result"]
+    assert report["status"] == "BLOCKED"
+    checks = {item["code"]: item["status"] for item in report["checks"]}
+    assert checks["SOLVER_AVAILABLE"] == "FAILED"
+    assert checks["ANSYS_V2_ANALYSIS_ADMISSION"] == "PASSED"
+    assert report["analysisAdmission"]["profile"] == ANSYS_V2_PROFILE
