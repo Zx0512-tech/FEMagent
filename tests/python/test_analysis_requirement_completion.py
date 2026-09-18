@@ -392,3 +392,77 @@ def test_unknown_draft_field_is_invalid_draft(tmp_path: Path) -> None:
         item["code"] == "ANALYSIS_REQUIREMENT_UNKNOWN_FIELD"
         for item in result["issues"]
     )
+
+
+def test_model_time_unit_conversion_is_deterministic(tmp_path: Path) -> None:
+    model = _model()
+    model["units"]["time"] = "ms"
+
+    result = complete_engineering_analysis_requirement(
+        tmp_path,
+        draft=_draft(),
+        model_spec=model,
+        load_artifact_path=_write_load(tmp_path),
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert result["candidateAnalysisSpec"]["definition"]["time"] == {
+        "timeStep": 10.0,
+        "duration": 20.0,
+    }
+    derived_time = next(
+        fact
+        for fact in result["derivedFacts"]
+        if fact.get("ruleId") == "TRANSIENT_TIME_FROM_ARTIFACT_V1"
+    )
+    assert derived_time["modelTimeUnit"] == "ms"
+
+
+def test_damping_ratio_language_does_not_authorize_rayleigh_inference(tmp_path: Path) -> None:
+    draft = _draft(damping=False)
+    draft["sources"][0]["text"] = draft["sources"][0]["text"].replace(
+        "不考虑阻尼",
+        "阻尼比取5%",
+    )
+
+    result = complete_engineering_analysis_requirement(
+        tmp_path,
+        draft=draft,
+        model_spec=_model(),
+        load_artifact_path=_write_load(tmp_path),
+    )
+
+    assert result["status"] == "INCOMPLETE"
+    assert result["candidateAnalysisSpec"] is None
+    assert any(item["subject"] == "damping" for item in result["missing"])
+
+
+def test_tower_base_shear_is_not_silently_rewritten_as_nodal_reaction(
+    tmp_path: Path,
+) -> None:
+    draft = _semantic_draft()
+    draft["sources"][0]["text"] = draft["sources"][0]["text"].replace(
+        "塔底的X向反力",
+        "塔底的X向剪力",
+    )
+    reaction = next(
+        fact
+        for fact in draft["facts"]
+        if fact["kind"] == "RESULT_REQUEST"
+        and fact["quantity"] == "REACTION_FORCE"
+    )
+    reaction["evidence"]["quote"] = "塔底的X向剪力"
+
+    result = complete_engineering_analysis_requirement(
+        tmp_path,
+        draft=draft,
+        model_spec=_model(),
+        load_artifact_path=_write_load(tmp_path),
+    )
+
+    assert result["status"] == "INVALID_DRAFT"
+    assert result["candidateAnalysisSpec"] is None
+    assert any(
+        item["code"] == "ANALYSIS_REQUIREMENT_RESULT_EVIDENCE_MISMATCH"
+        for item in result["issues"]
+    )
