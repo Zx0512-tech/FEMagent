@@ -357,6 +357,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "For legacy ANSYS with loadPath, declare solverOptions.modelUnits.length and .time from deterministic project/user evidence; never guess model units.",
       "For ANSYS V2 uniform-base earthquake execution, omit loadPath and provide solverOptions.modelUnits plus solverOptions.ansysV2.analysisSpec and the exact current confirmedBundleFingerprint from deterministic model inspection.",
       "Never invent confirmedBundleFingerprint. If the APDL bundle changes, inspect it again and rerun preflight; ANSYS V2 admission fails closed on bundle or load-artifact mismatch.",
+      "confirmedBundleFingerprint binds execution to exact APDL bundle bytes; it does not machine-prove semantic equivalence to AnalysisSpec.modelSpecFingerprint. Preserve and report analysisAdmission.binding.semanticEquivalence rather than overstating model equivalence.",
       "ANSYS V2 currently admits only TRANSIENT + UNIFORM_BASE_EXCITATION X/Y with explicit NONE/RAYLEIGH damping and NODE DISPLACEMENT/REACTION_FORCE X/Y results.",
       "ANSYS preflight stages a sanitized build-only bundle, validates generated load artifacts, and must not advance the requested solve.",
     ],
