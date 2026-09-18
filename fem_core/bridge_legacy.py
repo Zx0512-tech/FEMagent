@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -94,9 +95,15 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
     return solver, model_path, load_path, solver_options
 
 
-def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
+def handle_request(
+    request: Any,
+    *,
+    workspace: Path,
+    solver_adapter_factory: Callable[[str], Any] | None = None,
+) -> dict[str, Any]:
     request_id = "unknown"
     command = "unknown"
+    adapter_factory = solver_adapter_factory or get_solver_adapter
     try:
         if not isinstance(request, dict):
             raise FemCoreError("INVALID_REQUEST", "Bridge request must be a JSON object")
@@ -212,10 +219,10 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 query=_required_object(payload, "query"),
             )
         elif command == "solver.status":
-            result = get_solver_adapter(_required_text(payload, "solver")).status()
+            result = adapter_factory(_required_text(payload, "solver")).status()
         elif command == "solver.preflight":
             solver, model_path, load_path, solver_options = _solver_call_arguments(payload)
-            adapter = get_solver_adapter(solver)
+            adapter = adapter_factory(solver)
             if solver_options is None:
                 result = adapter.preflight(
                     workspace,
@@ -231,7 +238,7 @@ def handle_request(request: Any, *, workspace: Path) -> dict[str, Any]:
                 )
         elif command == "solver.run":
             solver, model_path, load_path, solver_options = _solver_call_arguments(payload)
-            adapter = get_solver_adapter(solver)
+            adapter = adapter_factory(solver)
             if solver_options is None:
                 result = adapter.run(
                     workspace,
