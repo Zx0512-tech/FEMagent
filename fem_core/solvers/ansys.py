@@ -510,6 +510,8 @@ class AnsysAdapter(SolverAdapter):
                 injected=False,
                 injection_status="VALIDATED_FOR_STAGING",
             )
+        if v2_plan is not None:
+            load_report["source"] = "ENGINEERING_ANALYSIS_SPEC_V2"
 
         ready = all(check["status"] == "PASSED" for check in checks)
         report: dict[str, Any] = {
@@ -709,6 +711,8 @@ class AnsysAdapter(SolverAdapter):
                 injection_status="INJECTED_IN_STAGED_BUNDLE",
                 execution_input_fingerprint=execution_input_fingerprint,
             )
+            if v2_plan is not None:
+                load_report["source"] = "ENGINEERING_ANALYSIS_SPEC_V2"
             injection_report = {
                 "injected": True,
                 "hookPath": injection_hook["path"],
