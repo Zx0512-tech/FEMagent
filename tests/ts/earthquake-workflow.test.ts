@@ -5,7 +5,9 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  FemCoreError,
   runFemEarthquakeWorkflowPrepare,
+  runFemEarthquakeWorkflowSummarize,
   type FemEarthquakeWorkflowPrepareInput,
   type FemEngineeringAnalysisRequirementDraft,
   type FemEngineeringModelSpecInput,
@@ -168,4 +170,18 @@ test("PR31 adds no execution shortcut and keeps confirmation on fem_solver_run",
   assert.match(main, /earthquake-workflow-tools\.ts/);
   assert.match(main, /"fem_earthquake_workflow_prepare"/);
   assert.match(main, /"fem_earthquake_workflow_summarize"/);
+});
+
+
+test("PR31 summarize command crosses the TypeScript/Python bridge fail-closed", async () => {
+  await assert.rejects(
+    runFemEarthquakeWorkflowSummarize(
+      process.cwd(),
+      ".femagent/workflows/missing/workflow_manifest.json",
+      "0".repeat(64),
+      "run_missing",
+    ),
+    (error: unknown) =>
+      error instanceof FemCoreError && error.code === "FILE_NOT_FOUND",
+  );
 });
