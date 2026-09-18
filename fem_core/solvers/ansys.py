@@ -616,6 +616,22 @@ class AnsysAdapter(SolverAdapter):
                 staged["workingDirectory"],
                 canonical_load,
             )
+
+        generated_control: dict[str, Any] | None = None
+        control_injection: dict[str, Any] | None = None
+        if v2_plan is not None:
+            generated_control = write_ansys_v2_control_macro(
+                staged["workingDirectory"],
+                v2_plan,
+            )
+            control_injection = inject_ansys_v2_controls(
+                staged["stageRoot"],
+                v2_plan["solveHook"],
+            )
+
+        if canonical_load is not None:
+            assert injection_hook is not None
+            assert generated_load is not None
             injection = inject_ansys_uniform_excitation(
                 staged["stageRoot"],
                 injection_hook,
@@ -627,17 +643,12 @@ class AnsysAdapter(SolverAdapter):
                 hook=injection_hook,
             )
 
-        generated_control: dict[str, Any] | None = None
-        control_injection: dict[str, Any] | None = None
         if v2_plan is not None:
             assert execution_input_fingerprint is not None
-            generated_control = write_ansys_v2_control_macro(
-                staged["workingDirectory"],
-                v2_plan,
-            )
-            control_injection = inject_ansys_v2_controls(
-                staged["stageRoot"],
-                v2_plan["solveHook"],
+            assert generated_control is not None
+            assert control_injection is not None
+            control_injection["stagedHookFileSha256"] = _sha256_file(
+                Path(str(control_injection["stagedHookFile"]))
             )
             execution_input_fingerprint = _ansys_v2_execution_fingerprint(
                 legacy_fingerprint=execution_input_fingerprint,
