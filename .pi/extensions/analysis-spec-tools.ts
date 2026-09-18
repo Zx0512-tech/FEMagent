@@ -4,7 +4,6 @@ import {
   runFemAnalysisRenderOpenSees,
   runFemAnalysisSpecValidate,
   type FemEngineeringAnalysisSpecInput,
-  type FemEngineeringAnalysisSpecV1Input,
   type FemEngineeringModelSpecInput,
 } from "@femagent/fem-tools";
 import { Type } from "typebox";
@@ -381,8 +380,9 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
       "Neither runs a solver. READY is not execution success, and RENDERED is not execution success; solver preflight and run remain separate controlled capabilities.",
       "Do not mutate engineering facts to force readiness. Never invent or alter supports, topology, node or element IDs, units, loads, result targets, or fingerprints just to make CHECK or RENDER pass.",
       "A NOT_READY or BLOCKED result is a deterministic engineering finding. Report the issue codes and preserve the submitted engineering facts rather than silently repairing them.",
-      "This preparation tool accepts AnalysisSpec schemaVersion 1.0 only. V2 remains intrinsic-validation-only in PR27 and must not be admitted to this PR26 execution profile.",
-      "V1 remains limited to bound 2D elastic-frame LINEAR_STATIC analysis with one explicit nodal-load case and the approved controlled result-request whitelist.",
+      "This preparation tool accepts the legacy V1 LINEAR_STATIC profile plus supported V2 LINEAR_STATIC, MODAL, NODAL_TIME_HISTORY, and UNIFORM_BASE_EXCITATION profiles.",
+      "V2 READY/RENDERED still does not execute the solver. Real execution remains behind generic solver preflight/run with the verified responsePlanPath + analysisManifestPath pair, and callers cannot select a worker execution mode.",
+      "ABSOLUTE_ACCELERATION under V2 UNIFORM_BASE_EXCITATION remains NOT_READY until an OpenSees absolute-acceleration mapping is proven.",
     ],
     parameters: Type.Object(
       {
