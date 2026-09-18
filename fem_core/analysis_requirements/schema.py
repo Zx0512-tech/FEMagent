@@ -193,12 +193,23 @@ def _validate_fact(
                     )
                 )
     elif kind == "RESULT_REQUEST":
-        _exact_keys(
-            fact,
-            base | {"quantity", "target", "component"},
-            path,
-            issues,
-        )
+        allowed = base | {"quantity", "target", "component"}
+        for key in sorted(set(fact) - allowed):
+            issues.append(
+                _issue(
+                    "ANALYSIS_REQUIREMENT_UNKNOWN_FIELD",
+                    f"{path}.{key}",
+                    f"Unknown analysis requirement field: {path}.{key}",
+                )
+            )
+        for key in sorted((base | {"quantity", "target"}) - set(fact)):
+            issues.append(
+                _issue(
+                    "ANALYSIS_REQUIREMENT_INVALID_SCHEMA",
+                    f"{path}.{key}",
+                    f"Required analysis requirement field is missing: {path}.{key}",
+                )
+            )
         if fact.get("quantity") not in _RESULT_QUANTITIES:
             issues.append(
                 _issue(
