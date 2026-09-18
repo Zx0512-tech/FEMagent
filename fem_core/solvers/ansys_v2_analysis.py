@@ -419,6 +419,14 @@ def build_ansys_v2_execution_plan(
             "SOLVER_MODEL_MISMATCH",
             "ANSYS V2 execution requires an ANSYS APDL Model Bundle",
         )
+    eligibility = str(inspection.get("validation", {}).get("executionEligibility") or "")
+    if eligibility != "STATICALLY_ELIGIBLE":
+        raise FemCoreError(
+            "ANSYS_V2_MODEL_NOT_ADMISSIBLE",
+            "ANSYS PR29 requires a statically eligible explicit APDL model bundle",
+            details={"executionEligibility": eligibility},
+        )
+
     bundle = inspection.get("bundle")
     if not isinstance(bundle, dict) or bundle.get("integrity") != "VALID":
         raise FemCoreError(
