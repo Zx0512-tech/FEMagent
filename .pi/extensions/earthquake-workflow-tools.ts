@@ -64,7 +64,7 @@ export default function earthquakeWorkflowToolsExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const report = await runFemEarthquakeWorkflowPrepare(
         ctx.cwd,
-        params as FemEarthquakeWorkflowPrepareInput,
+        params as unknown as FemEarthquakeWorkflowPrepareInput,
         signal,
       );
       return toolResult(report);
