@@ -1,0 +1,4 @@
+time_s,load_kind,channel_id,application_type,target_type,target_id,component,quantity,value,unit
+0,EARTHQUAKE,base-x,UNIFORM_EXCITATION,,,X,ACCELERATION,0,m/s2
+0.01,EARTHQUAKE,base-x,UNIFORM_EXCITATION,,,X,ACCELERATION,0.5,m/s2
+0.02,EARTHQUAKE,base-x,UNIFORM_EXCITATION,,,X,ACCELERATION,0,m/s2

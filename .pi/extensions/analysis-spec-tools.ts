@@ -4,7 +4,6 @@ import {
   runFemAnalysisRenderOpenSees,
   runFemAnalysisSpecValidate,
   type FemEngineeringAnalysisSpecInput,
-  type FemEngineeringAnalysisSpecV1Input,
   type FemEngineeringModelSpecInput,
 } from "@femagent/fem-tools";
 import { Type } from "typebox";
@@ -350,7 +349,7 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
       "Do not invent load magnitudes, directions, target IDs, mode counts, damping coefficients, time steps, artifact hashes, result requests, units, or modelSpecFingerprint values merely to make a specification VALID.",
       "V2 MODAL supports EIGENVALUE, NATURAL_FREQUENCY, PERIOD, and NODE MODE_SHAPE X/Y/RZ requests. It does not imply that a bound model has adequate mass for eigensolution.",
       "V2 TRANSIENT supports only NODAL_TIME_HISTORY force or UNIFORM_BASE_EXCITATION acceleration with explicit NONE or RAYLEIGH damping. Uniform-base acceleration responses must state RELATIVE_ACCELERATION or ABSOLUTE_ACCELERATION rather than bare ACCELERATION.",
-      "Intrinsic validation never reads ModelSpec targets or load artifact bytes. Cross-model binding, target existence, model readiness, artifact checks, and solver mapping belong to future V2 readiness profiles.",
+      "Intrinsic validation never reads ModelSpec targets or load artifact bytes. Use fem_analysis_prepare_opensees CHECK/RENDER for current V2 cross-model binding, target existence, model readiness, artifact checks, and proven OpenSees response mapping.",
       "This tool is read-only: it never writes OpenSees/APDL files, applies loads to a solver model, calls solver preflight/run, migrates specs, or repairs engineering facts.",
       "This fine-grained validation tool is temporary. The long-term Agent tool surface should converge into high-level Analysis capabilities instead of multiplying permanent internal tools.",
     ],
@@ -372,29 +371,30 @@ export default function analysisSpecToolsExtension(pi: ExtensionAPI) {
     name: "fem_analysis_prepare_opensees",
     label: "Prepare OpenSees Analysis",
     description:
-      "Check or render a bound EngineeringModelSpec + EngineeringAnalysisSpec V1 through one high-level OpenSees analysis preparation capability. CHECK is read-only. RENDER writes only controlled artifacts. Neither runs a solver.",
+      "Check or render a bound EngineeringModelSpec + supported EngineeringAnalysisSpec V1/V2 through one high-level OpenSees analysis preparation capability. CHECK is read-only. RENDER writes only controlled artifacts. Neither runs a solver.",
     promptSnippet:
-      "Check joint analysis readiness or render a deterministic OpenSees linear-static V1 analysis bundle without executing it",
+      "Check joint analysis readiness or render deterministic OpenSees V1/V2 static, modal, or transient analysis bundles without executing them",
     promptGuidelines: [
       "CHECK is read-only and reruns authoritative ModelSpec validation, AnalysisSpec validation, Model Readiness, model fingerprint binding, unit compatibility, target existence, reaction restraint semantics, and proven OpenSees response mapping.",
       "RENDER writes only controlled artifacts below FEMagent's generated-analysis directory after the same readiness gate passes; callers cannot choose an artifact destination.",
       "Neither runs a solver. READY is not execution success, and RENDERED is not execution success; solver preflight and run remain separate controlled capabilities.",
       "Do not mutate engineering facts to force readiness. Never invent or alter supports, topology, node or element IDs, units, loads, result targets, or fingerprints just to make CHECK or RENDER pass.",
       "A NOT_READY or BLOCKED result is a deterministic engineering finding. Report the issue codes and preserve the submitted engineering facts rather than silently repairing them.",
-      "This preparation tool accepts AnalysisSpec schemaVersion 1.0 only. V2 remains intrinsic-validation-only in PR27 and must not be admitted to this PR26 execution profile.",
-      "V1 remains limited to bound 2D elastic-frame LINEAR_STATIC analysis with one explicit nodal-load case and the approved controlled result-request whitelist.",
+      "This preparation tool accepts the legacy V1 LINEAR_STATIC profile plus supported V2 LINEAR_STATIC, MODAL, NODAL_TIME_HISTORY, and UNIFORM_BASE_EXCITATION profiles.",
+      "V2 READY/RENDERED still does not execute the solver. Real execution remains behind generic solver preflight/run with the verified responsePlanPath + analysisManifestPath pair, and callers cannot select a worker execution mode.",
+      "ABSOLUTE_ACCELERATION under V2 UNIFORM_BASE_EXCITATION remains NOT_READY until an OpenSees absolute-acceleration mapping is proven.",
     ],
     parameters: Type.Object(
       {
         mode: Type.Union([Type.Literal("CHECK"), Type.Literal("RENDER")]),
         modelSpec: modelSpecSchema,
-        analysisSpec: analysisSpecV1Schema,
+        analysisSpec: analysisSpecValidationSchema,
       },
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const modelSpec = params.modelSpec as FemEngineeringModelSpecInput;
-      const analysisSpec = params.analysisSpec as FemEngineeringAnalysisSpecV1Input;
+      const analysisSpec = params.analysisSpec as FemEngineeringAnalysisSpecInput;
       const report = params.mode === "CHECK"
         ? await runFemAnalysisReadiness(ctx.cwd, modelSpec, analysisSpec, signal)
         : await runFemAnalysisRenderOpenSees(ctx.cwd, modelSpec, analysisSpec, signal);

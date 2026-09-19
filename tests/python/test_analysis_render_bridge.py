@@ -91,26 +91,32 @@ def test_analysis_render_rendered_and_blocked_are_domain_results(tmp_path: Path)
     assert blocked["result"]["status"] == "BLOCKED"
 
 
-def test_valid_v2_render_is_blocked_without_generated_analysis_artifacts(tmp_path: Path) -> None:
+def test_v2_static_readiness_and_render_cross_the_workspace_aware_bridge(tmp_path: Path) -> None:
     model = _model_spec()
     migration = migrate_engineering_analysis_spec_v1_to_v2(_analysis_spec(model))
     v2 = migration["candidateSpec"]
     assert isinstance(v2, dict)
 
-    response = handle_request(
+    readiness = handle_request(
+        _request("analysis.readiness", model, v2),
+        workspace=tmp_path,
+    )
+    assert readiness["ok"] is True
+    assert readiness["result"]["schema"] == "FEMAGENT_ANALYSIS_READINESS_V2"
+    assert readiness["result"]["status"] == "READY"
+    assert readiness["result"]["profile"] == "OPENSEES_FRAME_2D_LINEAR_STATIC_V2"
+
+    rendered = handle_request(
         _request("analysis.renderOpenSees", model, v2),
         workspace=tmp_path,
     )
-
-    assert response["ok"] is True
-    result = response["result"]
-    assert result["status"] == "BLOCKED"
-    assert result["artifacts"] is None
-    assert result["readiness"]["status"] == "NOT_READY"
-    assert "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION" in {
-        issue["code"] for issue in result["readiness"]["issues"]
+    assert rendered["ok"] is True
+    assert rendered["result"]["schema"] == "FEMAGENT_OPENSEES_ANALYSIS_RENDER_V2"
+    assert rendered["result"]["status"] == "RENDERED"
+    assert rendered["result"]["renderer"] == {
+        "name": "OPENSEES_FRAME_2D_LINEAR_STATIC_V2",
+        "version": "2.0",
     }
-    assert not (tmp_path / ".femagent" / "generated-analyses").exists()
 
 
 def test_analysis_commands_require_object_specs(tmp_path: Path) -> None:

@@ -12,13 +12,22 @@ from pathlib import Path
 from typing import Any
 
 from fem_core.errors import FemCoreError
+from fem_core.modal_results import canonicalize_modal_results
 from fem_core.opensees_response_plan import (
     opensees_response_mapping,
     validate_opensees_response_plan_domain,
 )
 from fem_core.solvers.opensees import read_canonical_uniform_excitation, read_opensees_model_spec
 
-_VERIFIED_CONTEXT_KEYS = {"schemaVersion", "kind", "channels"}
+_V1_VERIFIED_CONTEXT_KEYS = {"schemaVersion", "kind", "channels"}
+_V2_VERIFIED_CONTEXT_KEYS = {
+    "schemaVersion",
+    "kind",
+    "analysisType",
+    "abscissaSemantic",
+    "abscissaUnit",
+    "channels",
+}
 _VERIFIED_CHANNEL_KEYS = {
     "channelId",
     "quantity",
@@ -33,6 +42,9 @@ _VERIFIED_CHANNEL_KEYS = {
     "referenceFrame",
     "unit",
 }
+_MODAL_CONTEXT_KEYS = {"schemaVersion", "kind", "modeCount", "modelTimeUnit", "requests"}
+_MODAL_QUANTITIES = {"EIGENVALUE", "NATURAL_FREQUENCY", "PERIOD", "MODE_SHAPE"}
+_MODAL_DOF = {"X": 1, "Y": 2, "RZ": 3}
 
 
 def _execute_python_entrypoint(model_path: Path) -> tuple[Any, Path, list[str]]:
@@ -58,18 +70,33 @@ def _element_types(ops: Any) -> dict[str, str]:
     return {str(int(tag)): str(ops.eleType(int(tag))) for tag in ops.getEleTags()}
 
 
+def _eigen_mode_count(args: tuple[Any, ...]) -> int:
+    for value in reversed(args):
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return 1
+
+
 def run_build_inspection(model_path: Path) -> dict[str, Any]:
     ops, original_cwd, original_sys_path = _execute_python_entrypoint(model_path)
     original_analyze = ops.analyze
+    original_eigen = ops.eigen
     intercepted_analyze_calls = 0
+    intercepted_eigen_calls = 0
 
     def blocked_analyze(*_args: Any, **_kwargs: Any) -> int:
         nonlocal intercepted_analyze_calls
         intercepted_analyze_calls += 1
         return 0
 
+    def blocked_eigen(*args: Any, **_kwargs: Any) -> list[float]:
+        nonlocal intercepted_eigen_calls
+        intercepted_eigen_calls += 1
+        return [1.0] * _eigen_mode_count(args)
+
     try:
         ops.analyze = blocked_analyze
+        ops.eigen = blocked_eigen
         runpy.run_path(str(model_path.resolve()), run_name="__femagent_build_inspection__")
         node_tags = sorted(int(tag) for tag in ops.getNodeTags())
         element_tags = sorted(int(tag) for tag in ops.getEleTags())
@@ -85,6 +112,7 @@ def run_build_inspection(model_path: Path) -> dict[str, Any]:
             "engineVersion": engine_version,
             "analysisAdvanced": False,
             "interceptedAnalyzeCalls": intercepted_analyze_calls,
+            "interceptedEigenCalls": intercepted_eigen_calls,
             "nodeTags": node_tags,
             "elementTags": element_tags,
             "elementTypes": _element_types(ops),
@@ -93,6 +121,7 @@ def run_build_inspection(model_path: Path) -> dict[str, Any]:
         }
     finally:
         ops.analyze = original_analyze
+        ops.eigen = original_eigen
         _restore_python_entrypoint(ops, original_cwd, original_sys_path)
 
 
@@ -122,20 +151,7 @@ def _invalid_verified_context(message: str, **details: Any) -> FemCoreError:
     return FemCoreError("INVALID_VERIFIED_RESPONSE_CONTEXT", message, details=details)
 
 
-def _read_verified_response_context(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise _invalid_verified_context(
-            "Verified OpenSees response context must be valid UTF-8 JSON"
-        ) from exc
-    if not isinstance(payload, dict) or set(payload) != _VERIFIED_CONTEXT_KEYS:
-        raise _invalid_verified_context("Verified OpenSees response context has an invalid shape")
-    if payload.get("schemaVersion") != "1.0" or payload.get("kind") != (
-        "verified_structural_response_context"
-    ):
-        raise _invalid_verified_context("Verified OpenSees response context identity is invalid")
-    raw_channels = payload.get("channels")
+def _validate_verified_channels(raw_channels: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_channels, list) or not raw_channels:
         raise _invalid_verified_context("Verified OpenSees response context requires channels")
 
@@ -173,13 +189,13 @@ def _read_verified_response_context(path: Path) -> dict[str, Any]:
                 "Verified OpenSees response unit is invalid",
                 channelId=channel_id,
             )
-        if reference_frame not in {"GLOBAL", "ELEMENT_LOCAL"}:
+        if reference_frame not in {"GLOBAL", "ELEMENT_LOCAL", "RELATIVE"}:
             raise _invalid_verified_context(
                 "Verified OpenSees response reference frame is invalid",
                 channelId=channel_id,
             )
         access = channel.get("access")
-        if access in {"NODE_DISP", "NODE_REACTION"}:
+        if access in {"NODE_DISP", "NODE_VEL", "NODE_ACCEL", "NODE_REACTION"}:
             dof = channel.get("dof")
             if not isinstance(dof, int) or isinstance(dof, bool) or dof <= 0:
                 raise _invalid_verified_context(
@@ -214,10 +230,143 @@ def _read_verified_response_context(path: Path) -> dict[str, Any]:
                 access=access,
             )
         channels.append(dict(channel))
+    return channels
+
+
+def _read_verified_response_context(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _invalid_verified_context(
+            "Verified OpenSees response context must be valid UTF-8 JSON"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise _invalid_verified_context("Verified OpenSees response context has an invalid shape")
+
+    schema_version = payload.get("schemaVersion")
+    kind = payload.get("kind")
+    if kind != "verified_structural_response_context":
+        raise _invalid_verified_context("Verified OpenSees response context identity is invalid")
+
+    if schema_version == "1.0":
+        if set(payload) != _V1_VERIFIED_CONTEXT_KEYS:
+            raise _invalid_verified_context("Verified OpenSees response context has an invalid shape")
+        channels = _validate_verified_channels(payload.get("channels"))
+        return {
+            "schemaVersion": "1.0",
+            "kind": "verified_structural_response_context",
+            "channels": channels,
+        }
+
+    if schema_version == "2.0":
+        if set(payload) != _V2_VERIFIED_CONTEXT_KEYS:
+            raise _invalid_verified_context("Verified OpenSees V2 response context has an invalid shape")
+        analysis_type = payload.get("analysisType")
+        abscissa_semantic = payload.get("abscissaSemantic")
+        abscissa_unit = payload.get("abscissaUnit")
+        if analysis_type == "LINEAR_STATIC":
+            if abscissa_semantic != "SOLVER_NATIVE_RESULT_ABSCISSA" or abscissa_unit is not None:
+                raise _invalid_verified_context("Verified OpenSees V2 static abscissa identity is invalid")
+        elif analysis_type == "TRANSIENT":
+            if abscissa_semantic != "TIME" or not isinstance(abscissa_unit, str) or not abscissa_unit:
+                raise _invalid_verified_context("Verified OpenSees V2 transient abscissa identity is invalid")
+        else:
+            raise _invalid_verified_context("Verified OpenSees V2 analysis type is unsupported")
+        channels = _validate_verified_channels(payload.get("channels"))
+        return {
+            "schemaVersion": "2.0",
+            "kind": "verified_structural_response_context",
+            "analysisType": analysis_type,
+            "abscissaSemantic": abscissa_semantic,
+            "abscissaUnit": abscissa_unit,
+            "channels": channels,
+        }
+
+    raise _invalid_verified_context("Verified OpenSees response context identity is invalid")
+
+
+def _read_verified_modal_context(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FemCoreError(
+            "INVALID_VERIFIED_MODAL_CONTEXT",
+            "Verified OpenSees modal context must be valid UTF-8 JSON",
+        ) from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != _MODAL_CONTEXT_KEYS
+        or payload.get("schemaVersion") != "1.0"
+        or payload.get("kind") != "verified_modal_response_context"
+    ):
+        raise FemCoreError(
+            "INVALID_VERIFIED_MODAL_CONTEXT",
+            "Verified OpenSees modal context has an invalid identity or shape",
+        )
+    mode_count = payload.get("modeCount")
+    model_time_unit = payload.get("modelTimeUnit")
+    requests = payload.get("requests")
+    if (
+        not isinstance(mode_count, int)
+        or isinstance(mode_count, bool)
+        or mode_count <= 0
+        or model_time_unit not in {"s", "ms"}
+        or not isinstance(requests, list)
+    ):
+        raise FemCoreError(
+            "INVALID_VERIFIED_MODAL_CONTEXT",
+            "Verified OpenSees modal context values are invalid",
+        )
+    seen: set[str] = set()
+    normalized_requests: list[dict[str, Any]] = []
+    for index, request in enumerate(requests):
+        if not isinstance(request, dict):
+            raise FemCoreError(
+                "INVALID_VERIFIED_MODAL_CONTEXT",
+                "Verified OpenSees modal request must be an object",
+                details={"requestIndex": index},
+            )
+        request_id = request.get("requestId")
+        quantity = request.get("quantity")
+        mode = request.get("mode")
+        if (
+            not isinstance(request_id, str)
+            or not request_id
+            or request_id in seen
+            or quantity not in _MODAL_QUANTITIES
+            or not isinstance(mode, int)
+            or isinstance(mode, bool)
+            or mode < 1
+            or mode > mode_count
+        ):
+            raise FemCoreError(
+                "INVALID_VERIFIED_MODAL_CONTEXT",
+                "Verified OpenSees modal request identity is invalid",
+                details={"requestIndex": index},
+            )
+        if quantity == "MODE_SHAPE":
+            target = request.get("target")
+            if (
+                not isinstance(target, dict)
+                or target.get("type") != "NODE"
+                or not isinstance(target.get("id"), int)
+                or isinstance(target.get("id"), bool)
+                or int(target["id"]) <= 0
+                or request.get("component") not in _MODAL_DOF
+            ):
+                raise FemCoreError(
+                    "INVALID_VERIFIED_MODAL_CONTEXT",
+                    "Verified OpenSees mode-shape request target is invalid",
+                    details={"requestId": request_id},
+                )
+        seen.add(request_id)
+        normalized_requests.append(dict(request))
     return {
         "schemaVersion": "1.0",
-        "kind": "verified_structural_response_context",
-        "channels": channels,
+        "kind": "verified_modal_response_context",
+        "modeCount": mode_count,
+        "modelTimeUnit": model_time_unit,
+        "requests": normalized_requests,
     }
 
 
@@ -240,6 +389,13 @@ def _write_structural_response(
     samples: dict[str, dict[str, list[float]]],
     mappings: dict[str, dict[str, Any]],
 ) -> Path:
+    if channels_source.get("schemaVersion") == "2.0":
+        abscissa_semantic = channels_source["abscissaSemantic"]
+        abscissa_unit = channels_source["abscissaUnit"]
+    else:
+        abscissa_semantic = "SOLVER_NATIVE_RESULT_ABSCISSA"
+        abscissa_unit = None
+
     channels: list[dict[str, Any]] = []
     for channel in channels_source["channels"]:
         channel_id = channel["channelId"]
@@ -256,8 +412,8 @@ def _write_structural_response(
                 **_response_identity(channel),
                 "unit": mapping["unit"],
                 "referenceFrame": mapping["referenceFrame"],
-                "abscissaSemantic": "SOLVER_NATIVE_RESULT_ABSCISSA",
-                "abscissaUnit": None,
+                "abscissaSemantic": abscissa_semantic,
+                "abscissaUnit": abscissa_unit,
                 "abscissaValues": sample["abscissaValues"],
                 "values": sample["values"],
             }
@@ -289,6 +445,10 @@ def _sample_response_channel(
     access = mapping.get("access")
     if access == "NODE_DISP":
         value = float(ops.nodeDisp(target_id, int(mapping["dof"])))
+    elif access == "NODE_VEL":
+        value = float(ops.nodeVel(target_id, int(mapping["dof"])))
+    elif access == "NODE_ACCEL":
+        value = float(ops.nodeAccel(target_id, int(mapping["dof"])))
     elif access == "NODE_REACTION":
         value = float(ops.nodeReaction(target_id, int(mapping["dof"])))
     elif access == "ELEMENT_LOCAL_FORCE":
@@ -436,6 +596,91 @@ def run_python_model(
         _restore_python_entrypoint(ops, original_cwd, original_sys_path)
 
 
+def run_modal_model(
+    model_path: Path,
+    run_dir: Path,
+    response_context_path: Path,
+) -> dict[str, Any]:
+    context = _read_verified_modal_context(response_context_path)
+    ops, original_cwd, original_sys_path = _execute_python_entrypoint(model_path)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    modal_path = run_dir / "modal_results.json"
+    summary_path = run_dir / "result_summary.json"
+    original_eigen = ops.eigen
+    captured_eigen_calls = 0
+    captured_eigenvalues: list[float] = []
+
+    def capturing_eigen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal captured_eigen_calls, captured_eigenvalues
+        captured_eigen_calls += 1
+        if captured_eigen_calls != 1:
+            raise FemCoreError(
+                "INVALID_MODAL_EXECUTION",
+                "Verified OpenSees modal source must invoke ops.eigen exactly once",
+            )
+        raw = original_eigen(*args, **kwargs)
+        if isinstance(raw, (list, tuple)):
+            captured_eigenvalues = [float(value) for value in raw]
+        else:
+            captured_eigenvalues = [float(raw)]
+        return raw
+
+    try:
+        ops.eigen = capturing_eigen
+        runpy.run_path(str(model_path.resolve()), run_name="__femagent_modal_run__")
+        if captured_eigen_calls != 1:
+            raise FemCoreError(
+                "INVALID_MODAL_EXECUTION",
+                "Verified OpenSees modal source did not invoke ops.eigen exactly once",
+                details={"capturedEigenCalls": captured_eigen_calls},
+            )
+        if len(captured_eigenvalues) < int(context["modeCount"]):
+            raise FemCoreError(
+                "INVALID_MODAL_RESULT",
+                "OpenSees returned fewer eigenvalues than the verified modal modeCount",
+                details={
+                    "modeCount": context["modeCount"],
+                    "eigenvalueCount": len(captured_eigenvalues),
+                },
+            )
+
+        mode_shapes: dict[str, float] = {}
+        for request in context["requests"]:
+            if request["quantity"] != "MODE_SHAPE":
+                continue
+            request_id = str(request["requestId"])
+            node_id = int(request["target"]["id"])
+            mode = int(request["mode"])
+            dof = _MODAL_DOF[str(request["component"])]
+            mode_shapes[request_id] = float(ops.nodeEigenvector(node_id, mode, dof))
+
+        canonical = canonicalize_modal_results(
+            eigenvalues=captured_eigenvalues[: int(context["modeCount"])],
+            requests=context["requests"],
+            model_time_unit=str(context["modelTimeUnit"]),
+            mode_shapes=mode_shapes,
+        )
+        modal_path.write_text(json.dumps(canonical, indent=2, sort_keys=True), encoding="utf-8")
+        summary = {
+            "modeCount": int(context["modeCount"]),
+            "resultCount": len(canonical["results"]),
+        }
+        summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+        engine_version = str(ops.version()) if hasattr(ops, "version") else None
+        return {
+            "status": "COMPLETED",
+            "packageVersion": version("openseespy"),
+            "engineVersion": engine_version,
+            "capturedEigenCalls": captured_eigen_calls,
+            "analysis": {"type": "MODAL", "modeCount": int(context["modeCount"])},
+            "summary": summary,
+            "modalResults": str(modal_path),
+        }
+    finally:
+        ops.eigen = original_eigen
+        _restore_python_entrypoint(ops, original_cwd, original_sys_path)
+
+
 def run_worker(model_path: Path, load_path: Path, run_dir: Path) -> dict[str, Any]:
     import openseespy.opensees as ops
 
@@ -537,7 +782,11 @@ def run_worker(model_path: Path, load_path: Path, run_dir: Path) -> dict[str, An
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("run", "build-inspect", "script-run"), default="run")
+    parser.add_argument(
+        "--mode",
+        choices=("run", "build-inspect", "script-run", "modal-run"),
+        default="run",
+    )
     parser.add_argument("--model", required=True)
     parser.add_argument("--load")
     parser.add_argument("--run-dir")
@@ -557,6 +806,14 @@ def main() -> int:
                 Path(args.run_dir).resolve(),
                 Path(args.response_plan).resolve() if args.response_plan else None,
                 Path(args.response_context).resolve() if args.response_context else None,
+            )
+        elif args.mode == "modal-run":
+            if not args.run_dir or not args.response_context:
+                raise ValueError("modal-run mode requires --run-dir and --response-context")
+            result = run_modal_model(
+                Path(args.model).resolve(),
+                Path(args.run_dir).resolve(),
+                Path(args.response_context).resolve(),
             )
         else:
             if not args.load or not args.run_dir:

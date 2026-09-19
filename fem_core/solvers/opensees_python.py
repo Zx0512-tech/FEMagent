@@ -42,7 +42,7 @@ def _solver_options(
     if unknown:
         raise FemCoreError(
             "UNSUPPORTED_SOLVER_OPTIONS",
-            "OpenSees PR26 accepts only responsePlanPath and analysisManifestPath",
+            "OpenSees accepts only responsePlanPath and analysisManifestPath",
             details={"unsupported": unknown},
         )
 
@@ -57,7 +57,7 @@ def _solver_options(
         if not isinstance(response_plan_path, str) or not response_plan_path.strip():
             raise FemCoreError(
                 "UNSUPPORTED_SOLVER_OPTIONS",
-                "Generated OpenSees analyses require responsePlanPath from the same PR26 render",
+                "Generated OpenSees analyses require responsePlanPath from the same render",
             )
         if load_path is not None:
             raise FemCoreError(
@@ -114,6 +114,23 @@ def _validate_generated_build_domain(
         )
 
 
+def _verified_worker_mode(generated: dict[str, Any] | None) -> str:
+    if generated is None:
+        return "script-run"
+    execution_mode = generated.get("executionMode")
+    if execution_mode is None:
+        return "script-run"
+    if execution_mode == "SCRIPT":
+        return "script-run"
+    if execution_mode == "MODAL":
+        return "modal-run"
+    raise FemCoreError(
+        "GENERATED_ANALYSIS_EXECUTION_MODE_INVALID",
+        "Generated-analysis verifier returned an unsupported execution mode",
+        details={"executionMode": execution_mode},
+    )
+
+
 class OpenSeesBundleAdapter(OpenSeesAdapter):
     """OpenSees adapter extended with safe Python bundles and controlled response plans."""
 
@@ -126,6 +143,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 "BUILD_ONLY_INSPECTION",
                 "STRUCTURAL_RESPONSE_PLAN_V1",
                 "GENERATED_ANALYSIS_VERIFICATION_V1",
+                "GENERATED_ANALYSIS_VERIFICATION_V2",
             ]
         return report
 
@@ -229,6 +247,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "bundle": static["bundle"],
             "analysisAdvanced": bool(result.get("analysisAdvanced")),
             "interceptedAnalyzeCalls": int(result.get("interceptedAnalyzeCalls") or 0),
+            "interceptedEigenCalls": int(result.get("interceptedEigenCalls") or 0),
             "nodeTags": [int(tag) for tag in result.get("nodeTags", [])],
             "elementTags": [int(tag) for tag in result.get("elementTags", [])],
             "elementTypes": {
@@ -357,6 +376,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                     "elementCount": len(build["elementTags"]),
                     "analysisAdvanced": build["analysisAdvanced"],
                     "interceptedAnalyzeCalls": build["interceptedAnalyzeCalls"],
+                    "interceptedEigenCalls": build["interceptedEigenCalls"],
                 },
             },
             "load": load,
@@ -424,6 +444,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
 
         staged_plan: Path | None = None
         staged_context: Path | None = None
+        worker_mode = "script-run"
         if generated is not None:
             generated = verify_generated_analysis_bundle(
                 workspace,
@@ -431,17 +452,19 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 response_plan_path=generated["artifacts"]["responsePlanPath"],
                 manifest_path=generated["artifacts"]["manifestPath"],
             )
+            worker_mode = _verified_worker_mode(generated)
             if _sha256_file(staged_model) != generated["artifacts"]["analysisSha256"]:
                 raise FemCoreError(
                     "GENERATED_ANALYSIS_ARTIFACT_MISMATCH",
                     "Staged OpenSees analysis differs from the verified generated analysis",
                 )
-            source_plan = resolve_workspace_file(
-                workspace,
-                generated["artifacts"]["responsePlanPath"],
-            )
-            staged_plan = run_dir / "response_plan.normalized.json"
-            shutil.copy2(source_plan, staged_plan)
+            if generated.get("executionMode") is None:
+                source_plan = resolve_workspace_file(
+                    workspace,
+                    generated["artifacts"]["responsePlanPath"],
+                )
+                staged_plan = run_dir / "response_plan.normalized.json"
+                shutil.copy2(source_plan, staged_plan)
             staged_context = run_dir / "response_context.verified.json"
             staged_context.write_text(
                 json.dumps(generated["responseContext"], indent=2, sort_keys=True),
@@ -469,7 +492,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "-m",
             "fem_core.solvers.opensees_worker",
             "--mode",
-            "script-run",
+            worker_mode,
             "--model",
             str(staged_model),
             "--run-dir",
@@ -512,7 +535,7 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             if worker is not None and isinstance(worker.get("code"), str):
                 raise FemCoreError(
                     str(worker["code"]),
-                    str(worker.get("message") or "OpenSees structural response worker failed"),
+                    str(worker.get("message") or "OpenSees generated-analysis worker failed"),
                     details={
                         "runId": run_id,
                         "returnCode": completed.returncode,
@@ -543,8 +566,18 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
                 details={"runId": run_id},
             )
         structural_response = run_dir / "structural_response.json"
-        response_requested = response_plan is not None or generated is not None
-        if response_requested and not structural_response.is_file():
+        modal_results = run_dir / "modal_results.json"
+        modal_requested = generated is not None and worker_mode == "modal-run"
+        structural_requested = response_plan is not None or (
+            generated is not None and worker_mode == "script-run"
+        )
+        if modal_requested and not modal_results.is_file():
+            raise FemCoreError(
+                "INVALID_SOLVER_RESULT",
+                "OpenSees modal run did not produce modal_results.json",
+                details={"runId": run_id},
+            )
+        if structural_requested and not structural_response.is_file():
             raise FemCoreError(
                 "INVALID_SOLVER_RESULT",
                 "OpenSees response run did not produce structural_response.json",
@@ -598,9 +631,12 @@ class OpenSeesBundleAdapter(OpenSeesAdapter):
             "solverLogSha256": _sha256_file(solver_log),
             "stagedBundleRoot": workspace_relative_path(workspace, stage_root),
         }
-        if response_requested:
+        if structural_requested:
             outputs["structuralResponse"] = workspace_relative_path(workspace, structural_response)
             outputs["structuralResponseSha256"] = _sha256_file(structural_response)
+        if modal_requested:
+            outputs["modalResults"] = workspace_relative_path(workspace, modal_results)
+            outputs["modalResultsSha256"] = _sha256_file(modal_results)
 
         manifest = {
             "schemaVersion": "1.0",

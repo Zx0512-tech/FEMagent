@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from fem_core.analysis_spec.opensees_profiles import (
+    OPENSEES_MODAL_V2,
+    OPENSEES_STATIC_V1,
+    OPENSEES_STATIC_V2,
+    OPENSEES_TRANSIENT_BASE_V2,
+    OPENSEES_TRANSIENT_NODAL_V2,
+    select_opensees_analysis_profile,
+)
+from fem_core.analysis_spec.opensees_profiles.modal_v2 import evaluate_modal_v2_readiness
+from fem_core.analysis_spec.opensees_profiles.static_v2 import evaluate_static_v2_readiness
+from fem_core.analysis_spec.opensees_profiles.transient_v2 import evaluate_transient_v2_readiness
 from fem_core.analysis_spec.validator import validate_engineering_analysis_spec
 from fem_core.errors import FemCoreError
 from fem_core.model_spec.readiness import evaluate_engineering_model_readiness
@@ -12,7 +24,8 @@ from fem_core.opensees_response_mapping import (
 )
 
 READINESS_SCHEMA = "FEMAGENT_ANALYSIS_READINESS_V1"
-READINESS_PROFILE = "OPENSEES_FRAME_2D_LINEAR_STATIC_V1"
+READINESS_SCHEMA_V2 = "FEMAGENT_ANALYSIS_READINESS_V2"
+READINESS_PROFILE = OPENSEES_STATIC_V1
 
 
 def _compact_validation(validation: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +97,35 @@ def _invalid_spec_result(
     }
 
 
+def _pending_v2_result(
+    *,
+    profile: str,
+    model_validation: dict[str, Any],
+    analysis_validation: dict[str, Any],
+    model_fingerprint: str,
+    analysis_fingerprint: str,
+) -> dict[str, Any]:
+    return {
+        "schema": READINESS_SCHEMA_V2,
+        "status": "NOT_READY",
+        "profile": profile,
+        "modelSpecFingerprint": model_fingerprint,
+        "analysisSpecFingerprint": analysis_fingerprint,
+        "validation": {
+            "modelSpec": _compact_validation(model_validation),
+            "analysisSpec": _compact_validation(analysis_validation),
+        },
+        "checks": _skipped_checks(),
+        "issues": [
+            _issue(
+                "ANALYSIS_READINESS_UNSUPPORTED_PROFILE",
+                "analysisSpec",
+                "The selected OpenSees analysis profile is not supported by readiness",
+            )
+        ],
+    }
+
+
 def _reaction_required_dof(request: dict[str, Any]) -> str | None:
     quantity = request.get("quantity")
     component = request.get("component")
@@ -99,6 +141,8 @@ def _reaction_required_dof(request: dict[str, Any]) -> str | None:
 def evaluate_engineering_analysis_readiness(
     model_spec: dict[str, Any],
     analysis_spec: dict[str, Any],
+    *,
+    workspace: Path | None = None,
 ) -> dict[str, Any]:
     model_validation = validate_engineering_model_spec(model_spec)
     analysis_validation = validate_engineering_analysis_spec(analysis_spec)
@@ -120,26 +164,37 @@ def evaluate_engineering_analysis_readiness(
             "Valid Engineering Specs must provide deterministic fingerprints",
         )
 
-    if normalized_analysis.get("schemaVersion") != "1.0":
-        return {
-            "schema": READINESS_SCHEMA,
-            "status": "NOT_READY",
-            "profile": READINESS_PROFILE,
-            "modelSpecFingerprint": model_fingerprint,
-            "analysisSpecFingerprint": analysis_fingerprint,
-            "validation": {
-                "modelSpec": _compact_validation(model_validation),
-                "analysisSpec": _compact_validation(analysis_validation),
-            },
-            "checks": _skipped_checks(),
-            "issues": [
-                _issue(
-                    "ANALYSIS_READINESS_UNSUPPORTED_ANALYSIS_SPEC_VERSION",
-                    "analysisSpec.schemaVersion",
-                    "The PR26 OpenSees readiness profile accepts only AnalysisSpec schemaVersion 1.0",
-                )
-            ],
-        }
+    profile = select_opensees_analysis_profile(normalized_analysis)
+    if profile == OPENSEES_STATIC_V2:
+        return evaluate_static_v2_readiness(
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            normalized_model=normalized_model,
+            normalized_analysis=normalized_analysis,
+        )
+    if profile == OPENSEES_MODAL_V2:
+        return evaluate_modal_v2_readiness(
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            normalized_model=normalized_model,
+            normalized_analysis=normalized_analysis,
+        )
+    if profile in {OPENSEES_TRANSIENT_NODAL_V2, OPENSEES_TRANSIENT_BASE_V2}:
+        return evaluate_transient_v2_readiness(
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            normalized_model=normalized_model,
+            normalized_analysis=normalized_analysis,
+            workspace=workspace,
+        )
+    if profile != READINESS_PROFILE:
+        return _pending_v2_result(
+            profile=profile,
+            model_validation=model_validation,
+            analysis_validation=analysis_validation,
+            model_fingerprint=model_fingerprint,
+            analysis_fingerprint=analysis_fingerprint,
+        )
 
     issues: list[dict[str, str]] = []
 
@@ -351,5 +406,6 @@ def evaluate_engineering_analysis_readiness(
 __all__ = [
     "READINESS_PROFILE",
     "READINESS_SCHEMA",
+    "READINESS_SCHEMA_V2",
     "evaluate_engineering_analysis_readiness",
 ]
