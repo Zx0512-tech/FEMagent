@@ -1,4 +1,19 @@
 export {
+  type FemEarthquakeWorkflowEngineeringSummary,
+  type FemEarthquakeWorkflowManifest,
+  type FemEarthquakeWorkflowManifestRef,
+  type FemEarthquakeWorkflowPreparation,
+  type FemEarthquakeWorkflowPreparationStatus,
+  type FemEarthquakeWorkflowPrepareInput,
+  type FemEarthquakeWorkflowRunRequest,
+  type FemEarthquakeWorkflowSolver,
+  type FemEarthquakeWorkflowSummary,
+} from "./earthquakeWorkflowTypes.js";
+export {
+  runFemEarthquakeWorkflowPrepare,
+  runFemEarthquakeWorkflowSummarize,
+} from "./earthquakeWorkflow.js";
+export {
   type FemAnalysisRequirementCompletion,
   type FemAnalysisRequirementCompletionStatus,
   type FemAnalysisRequirementEvidence,
