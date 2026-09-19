@@ -85,11 +85,11 @@ def _solver_call_arguments(payload: dict[str, Any]) -> tuple[str, str, str | Non
                 details={"solver": solver, "unsupported": unsupported},
             )
     if normalized_solver in {"ansys", "mapdl", "ansys-mapdl"} and solver_options is not None:
-        unsupported = sorted(set(solver_options) - {"modelUnits"})
+        unsupported = sorted(set(solver_options) - {"modelUnits", "ansysV2"})
         if unsupported:
             raise FemCoreError(
                 "UNSUPPORTED_SOLVER_OPTIONS",
-                "ANSYS accepts only solverOptions.modelUnits in PR15",
+                "ANSYS accepts only solverOptions.modelUnits and solverOptions.ansysV2",
                 details={"solver": solver, "unsupported": unsupported},
             )
     return solver, model_path, load_path, solver_options
