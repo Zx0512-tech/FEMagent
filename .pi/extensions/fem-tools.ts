@@ -10,6 +10,7 @@ import {
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,
+  type FemSolverOptions,
 } from "@femagent/fem-tools";
 import { Type } from "typebox";
 
@@ -26,8 +27,97 @@ const ansysModelUnits = Type.Object({
   }),
 });
 
+const ansysV2ResultRequest = Type.Union([
+  Type.Object(
+    {
+      requestId: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }),
+      quantity: Type.Literal("DISPLACEMENT"),
+      target: Type.Object(
+        { type: Type.Literal("NODE"), id: Type.Integer({ minimum: 1 }) },
+        { additionalProperties: false },
+      ),
+      component: Type.Union([Type.Literal("X"), Type.Literal("Y")]),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      requestId: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }),
+      quantity: Type.Literal("REACTION_FORCE"),
+      target: Type.Object(
+        { type: Type.Literal("NODE"), id: Type.Integer({ minimum: 1 }) },
+        { additionalProperties: false },
+      ),
+      component: Type.Union([Type.Literal("X"), Type.Literal("Y")]),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+const ansysV2AnalysisSpec = Type.Object(
+  {
+    schemaVersion: Type.Literal("2.0"),
+    kind: Type.Literal("engineering_analysis_spec"),
+    modelSpecFingerprint: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+    analysisType: Type.Literal("TRANSIENT"),
+    units: Type.Object({}, { additionalProperties: false }),
+    definition: Type.Object(
+      {
+        time: Type.Object(
+          {
+            timeStep: Type.Number({ exclusiveMinimum: 0 }),
+            duration: Type.Number({ exclusiveMinimum: 0 }),
+          },
+          { additionalProperties: false },
+        ),
+        damping: Type.Union([
+          Type.Object({ type: Type.Literal("NONE") }, { additionalProperties: false }),
+          Type.Object(
+            {
+              type: Type.Literal("RAYLEIGH"),
+              alphaM: Type.Number({ minimum: 0 }),
+              betaK: Type.Number({ minimum: 0 }),
+            },
+            { additionalProperties: false },
+          ),
+        ]),
+        excitation: Type.Object(
+          {
+            type: Type.Literal("UNIFORM_BASE_EXCITATION"),
+            component: Type.Union([Type.Literal("X"), Type.Literal("Y")]),
+            quantity: Type.Literal("ACCELERATION"),
+            loadArtifact: Type.Object(
+              {
+                path: Type.String({ minLength: 1 }),
+                sha256: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+              },
+              { additionalProperties: false },
+            ),
+          },
+          { additionalProperties: false },
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    resultRequests: Type.Array(ansysV2ResultRequest, { minItems: 1 }),
+  },
+  { additionalProperties: false },
+);
+
+const ansysV2Options = Type.Object(
+  {
+    analysisSpec: ansysV2AnalysisSpec,
+    confirmedBundleFingerprint: Type.String({
+      pattern: "^[0-9a-f]{64}$",
+      description: "Exact current ANSYS Model Bundle fingerprint previously observed through deterministic inspection.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
 const solverOptions = Type.Object({
   modelUnits: Type.Optional(ansysModelUnits),
+  ansysV2: Type.Optional(ansysV2Options),
   responsePlanPath: Type.Optional(Type.String({
     description: "Workspace-relative strict OpenSees Structural Response Plan path. This is a JSON plan path only, never recorder commands or arbitrary arguments.",
   })),
@@ -265,8 +355,11 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "For a generated-analysis OpenSees bundle, use the same solverOptions.responsePlanPath and solverOptions.analysisManifestPath that came from fem_analysis_prepare_opensees; loadPath must be omitted and admission is fail-closed on manifest, fingerprint, artifact, or realized-topology mismatch.",
       "For the controlled OpenSees ELASTIC_SDOF JSON model, a canonical FEMAGENT_LOAD_CSV_V1 load remains required.",
       "OpenSees does not accept ANSYS solverOptions.modelUnits and must fail closed when they are supplied.",
-      "For ANSYS with loadPath, declare solverOptions.modelUnits.length and .time from deterministic project/user evidence; never guess model units.",
-      "ANSYS PR10 accepts one FEMAGENT_LOAD_CSV_V1 EARTHQUAKE + UNIFORM_EXCITATION + ACCELERATION channel and validates the transient injection hook before execution.",
+      "For legacy ANSYS with loadPath, declare solverOptions.modelUnits.length and .time from deterministic project/user evidence; never guess model units.",
+      "For ANSYS V2 uniform-base earthquake execution, omit loadPath and provide solverOptions.modelUnits plus solverOptions.ansysV2.analysisSpec and the exact current confirmedBundleFingerprint from deterministic model inspection.",
+      "Never invent confirmedBundleFingerprint. If the APDL bundle changes, inspect it again and rerun preflight; ANSYS V2 admission fails closed on bundle or load-artifact mismatch.",
+      "confirmedBundleFingerprint binds execution to exact APDL bundle bytes; it does not machine-prove semantic equivalence to AnalysisSpec.modelSpecFingerprint. Preserve and report analysisAdmission.binding.semanticEquivalence rather than overstating model equivalence.",
+      "ANSYS V2 currently admits only TRANSIENT + UNIFORM_BASE_EXCITATION X/Y with explicit NONE/RAYLEIGH damping and NODE DISPLACEMENT/REACTION_FORCE X/Y results.",
       "ANSYS preflight stages a sanitized build-only bundle, validates generated load artifacts, and must not advance the requested solve.",
     ],
     parameters: Type.Object({
@@ -281,7 +374,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
         params.solver,
         params.modelPath,
         params.loadPath,
-        params.solverOptions,
+        params.solverOptions as FemSolverOptions | undefined,
         signal,
       );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
@@ -299,8 +392,9 @@ export default function femToolsExtension(pi: ExtensionAPI) {
       "OpenSees Python entrypoints may own their load/analysis definition; omitted loadPath is valid only when preflight reports MODEL_SCRIPT_MANAGED.",
       "For OpenSees structural recording, pass exactly the same strict solverOptions.responsePlanPath used for READY preflight; do not synthesize recorder commands or mutate the plan between preflight and run.",
       "For a generated-analysis OpenSees bundle, pass exactly the same solverOptions.responsePlanPath and solverOptions.analysisManifestPath that produced READY preflight; do not supply loadPath or mutate generated artifacts between preflight and run.",
-      "For ANSYS canonical injection, pass the same loadPath and solverOptions.modelUnits that produced READY preflight; do not alter or infer them between preflight and run.",
-      "ANSYS runs must generate load artifacts and inject only into the staged Model Bundle, never the user's source model; inspect load/injection hashes and executionInputFingerprint in the run manifest.",
+      "For legacy ANSYS canonical injection, pass the same loadPath and solverOptions.modelUnits that produced READY preflight; do not alter or infer them between preflight and run.",
+      "For ANSYS V2, pass exactly the same solverOptions.modelUnits and solverOptions.ansysV2 object that produced READY preflight, keep loadPath omitted, and do not mutate the model bundle or AnalysisSpec between preflight and run.",
+      "ANSYS runs must generate load/control artifacts and inject only into the staged Model Bundle, never the user's source model; inspect admission, load/injection hashes and executionInputFingerprint in the run manifest.",
       "Do not execute a model whose static inspection, dependency graph, canonical-load injection check, structural response mapping check, or build-only inspection is blocked.",
       "ANSYS run completion proves the MAPDL process returned successfully and outputs were captured; use fem_result_inspect/query for numerical result truth rather than LLM inference.",
     ],
@@ -316,7 +410,7 @@ export default function femToolsExtension(pi: ExtensionAPI) {
         params.solver,
         params.modelPath,
         params.loadPath,
-        params.solverOptions,
+        params.solverOptions as FemSolverOptions | undefined,
         signal,
       );
       return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }], details: report };
