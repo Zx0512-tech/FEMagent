@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -17,9 +17,49 @@ import {
   runFemSolverPreflight,
   runFemSolverRun,
   runFemSolverStatus,
+  type FemAnsysV2Options,
+  type FemSolverOptions,
 } from "@femagent/fem-tools";
 
 const cwd = process.cwd();
+
+const ansysV2TypeContract: FemAnsysV2Options = {
+  analysisSpec: {
+    schemaVersion: "2.0",
+    kind: "engineering_analysis_spec",
+    modelSpecFingerprint: "a".repeat(64),
+    analysisType: "TRANSIENT",
+    units: {},
+    definition: {
+      time: { timeStep: 0.01, duration: 0.02 },
+      damping: { type: "NONE" },
+      excitation: {
+        type: "UNIFORM_BASE_EXCITATION",
+        component: "X",
+        quantity: "ACCELERATION",
+        loadArtifact: {
+          path: "loads/eq.csv",
+          sha256: "b".repeat(64),
+        },
+      },
+    },
+    resultRequests: [
+      {
+        requestId: "U2X",
+        quantity: "DISPLACEMENT",
+        target: { type: "NODE", id: 2 },
+        component: "X",
+      },
+    ],
+  },
+  confirmedBundleFingerprint: "c".repeat(64),
+};
+
+const ansysV2SolverOptionsTypeContract: FemSolverOptions = {
+  modelUnits: { length: "m", time: "s" },
+  ansysV2: ansysV2TypeContract,
+};
+
 
 const earthquakeMapping = {
   version: 1,
@@ -97,6 +137,27 @@ async function writeSyntheticResultRun(): Promise<{ runId: string; runDir: strin
   await writeFile(path.join(runDir, "run_manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   return { runId, runDir };
 }
+
+
+test("ANSYS V2 uniform-base intent is carried only through typed generic solver options", () => {
+  assert.equal(ansysV2SolverOptionsTypeContract.modelUnits?.length, "m");
+  assert.equal(ansysV2SolverOptionsTypeContract.ansysV2?.analysisSpec.analysisType, "TRANSIENT");
+  assert.equal(
+    ansysV2SolverOptionsTypeContract.ansysV2?.analysisSpec.definition.excitation.type,
+    "UNIFORM_BASE_EXCITATION",
+  );
+  assert.equal(ansysV2SolverOptionsTypeContract.ansysV2?.confirmedBundleFingerprint.length, 64);
+});
+
+test("PR29 keeps ANSYS V2 behind the existing generic solver tools", async () => {
+  const source = await readFile(".pi/extensions/fem-tools.ts", "utf8");
+  assert.match(source, /ansysV2/);
+  assert.match(source, /confirmedBundleFingerprint/);
+  assert.match(source, /semanticEquivalence/);
+  assert.doesNotMatch(source, /name:\s*"fem_ansys_v2_/);
+  assert.doesNotMatch(source, /name:\s*"fem_earthquake_run"/);
+});
+
 
 test("model inspection crosses the versioned TypeScript/Python bridge", async () => {
   const report = await runFemModelInspect(cwd, "tests/fixtures/simple_model.apdl");
