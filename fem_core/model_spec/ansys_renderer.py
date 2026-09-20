@@ -358,7 +358,7 @@ def render_ansys_frame_2d(
             + "\n",
             encoding="utf-8",
         )
-    except Exception:
+    except (FemCoreError, OSError):
         shutil.rmtree(render_dir, ignore_errors=True)
         raise
 
