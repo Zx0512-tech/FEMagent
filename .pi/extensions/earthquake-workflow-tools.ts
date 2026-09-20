@@ -32,7 +32,8 @@ export default function earthquakeWorkflowToolsExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use this after a canonical earthquake load artifact exists and the user request has been extracted into the PR30 evidence-backed analysis requirement draft.",
       "For OpenSees, PR31 performs Analysis Readiness, verifies positive excited-direction nodal mass, renders the generated analysis, and preflights the exact generated bundle.",
-      "For ANSYS, provide solverModelPath for the workspace-local APDL entrypoint. PR31 inspects the exact bundle and binds PR29 admission to its current fingerprint; it does not prove APDL↔ModelSpec semantic equivalence.",
+      "For ANSYS, omit solverModelPath to let PR33 deterministically render the validated ModelSpec into APDL and machine-verify the render back to AnalysisSpec.modelSpecFingerprint.",
+      "Provide solverModelPath only when intentionally using an existing external APDL bundle. That legacy path remains exact-byte bound but semanticEquivalence=NOT_MACHINE_PROVEN.",
       "If status is NEEDS_INPUT, ANALYSIS_NOT_READY, or PREFLIGHT_BLOCKED, do not call fem_solver_run. Surface the returned missing/conflict/readiness/preflight evidence.",
       "If status is READY_FOR_CONFIRMATION, call fem_solver_run with solver, modelPath, and solverOptions copied verbatim from solverRunRequest. Do not mutate any path, fingerprint, AnalysisSpec, or option between preflight and run.",
       "Real execution must remain on fem_solver_run so the existing permission gate can obtain explicit user approval. This workflow tool must never execute the solver itself.",
@@ -55,7 +56,7 @@ export default function earthquakeWorkflowToolsExtension(pi: ExtensionAPI) {
         solverModelPath: Type.Optional(
           Type.String({
             minLength: 1,
-            description: "Required for ANSYS: workspace-relative APDL model entrypoint",
+            description: "Optional legacy ANSYS override: workspace-relative external APDL entrypoint. Omit to use deterministic PR33 ModelSpec rendering.",
           }),
         ),
       },
