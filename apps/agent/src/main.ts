@@ -23,6 +23,7 @@ const resourceLoader = new DefaultResourceLoader({
     resolve(cwd, ".pi/extensions/analysis-requirement-tools.ts"),
     resolve(cwd, ".pi/extensions/earthquake-workflow-tools.ts"),
     resolve(cwd, ".pi/extensions/controlled-repair-tools.ts"),
+    resolve(cwd, ".pi/extensions/response-metric-tools.ts"),
   ],
 });
 await resourceLoader.reload();
@@ -53,6 +54,7 @@ const { session } = await createAgentSession({
     "fem_analysis_prepare_opensees",
     "fem_load_inspect",
     "fem_load_standardize",
+    "fem_response_metrics_compute",
     "fem_solver_status",
     "fem_solver_preflight",
     "fem_solver_run",
