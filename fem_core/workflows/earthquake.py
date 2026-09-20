@@ -638,6 +638,26 @@ def _bind_run_to_workflow(
                 "EARTHQUAKE_WORKFLOW_RUN_BUNDLE_MISMATCH",
                 "ANSYS run Model Bundle fingerprint does not match the workflow",
             )
+        workflow_binding = workflow.get("solverBinding", {})
+        if workflow_binding.get("mode") == "DETERMINISTIC_ANSYS_MODEL_RENDER":
+            run_admission = run_manifest.get("analysisAdmission")
+            run_binding = (
+                run_admission.get("binding")
+                if isinstance(run_admission, dict)
+                else None
+            )
+            if (
+                not isinstance(run_binding, dict)
+                or run_binding.get("mode") != "DETERMINISTIC_MODEL_SPEC_RENDER"
+                or run_binding.get("semanticEquivalence")
+                != "MACHINE_PROVEN_RENDER_BINDING"
+                or run_binding.get("renderFingerprint")
+                != workflow_binding.get("renderFingerprint")
+            ):
+                raise FemCoreError(
+                    "EARTHQUAKE_WORKFLOW_RUN_RENDER_MISMATCH",
+                    "ANSYS run deterministic render binding does not match the prepared workflow",
+                )
     if received_analysis != expected_analysis:
         raise FemCoreError(
             "EARTHQUAKE_WORKFLOW_RUN_ANALYSIS_MISMATCH",
