@@ -85,7 +85,7 @@ export default function responseMetricToolsExtension(pi: ExtensionAPI) {
       "Never invent roleId values. Inspect or resolve the semantic manifest first when role IDs are unknown.",
       "ROLE_ABSOLUTE_PEAK supports NODE displacement/velocity/acceleration/reaction channels and recorded ELEMENT generalized force with explicit location.",
       "Use ROLE_RELATIVE_DISPLACEMENT_PEAK only for two distinct explicit NODE roles. The calculation is target minus reference on exactly aligned samples; the tool never interpolates or resamples.",
-      "Use ROLE_GROUP_REACTION_RESULTANT_PEAK for one or more explicit NODE roles when the requested engineering quantity is the simultaneous X/Y reaction vector resultant. It sums signed X/Y components first, then takes the vector magnitude.",
+      "Use ROLE_GROUP_REACTION_RESULTANT_PEAK for one or more explicit NODE roles when the requested engineering quantity is the simultaneous X/Y reaction vector resultant. Its aggregation is SIGNED_COMPONENT_SUM_THEN_VECTOR_MAGNITUDE: sum signed X/Y components first, then take the vector magnitude.",
       "Unknown ANSYS units remain null. Never relabel or convert them.",
       "A LIMITED report means one or more requested metrics could not be computed from recorded evidence. Never substitute zero or another response channel.",
       "Metrics are numerical response summaries only. Do not turn them into code-compliance or engineering PASS/FAIL judgments without a separate explicit acceptance contract.",
