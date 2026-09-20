@@ -590,6 +590,44 @@ def test_run_must_match_semantic_model_bundle(tmp_path: Path) -> None:
     assert exc_info.value.code == "ENGINEERING_RESPONSE_METRIC_RUN_MODEL_MISMATCH"
 
 
+
+def test_result_artifact_tamper_fails_before_metric_promotion(
+    tmp_path: Path,
+) -> None:
+    model_path, manifest_path, run_id = _workspace(tmp_path)
+    structural = (
+        tmp_path
+        / ".femagent"
+        / "runs"
+        / run_id
+        / "structural_response.json"
+    )
+    structural.write_text(
+        structural.read_text(encoding="utf-8") + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FemCoreError) as exc_info:
+        compute_engineering_response_metrics(
+            tmp_path,
+            _request(
+                run_id,
+                model_path,
+                manifest_path,
+                [
+                    {
+                        "metricId": "tampered",
+                        "type": "ROLE_ABSOLUTE_PEAK",
+                        "roleId": "GIRDER_END_RIGHT",
+                        "quantity": "DISPLACEMENT",
+                        "component": "X",
+                    }
+                ],
+            ),
+        )
+
+    assert exc_info.value.code == "RESULT_ARTIFACT_HASH_MISMATCH"
+
 def test_invalid_request_fails_before_result_access(tmp_path: Path) -> None:
     with pytest.raises(FemCoreError) as exc_info:
         compute_engineering_response_metrics(
