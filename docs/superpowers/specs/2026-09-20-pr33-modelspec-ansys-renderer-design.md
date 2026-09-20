@@ -75,6 +75,7 @@ A successful report records:
 - modelSpecFingerprint;
 - exact units;
 - readiness profile;
+- the normalized ModelSpec content used to generate the source, so verification can revalidate its fingerprint and reproduce the APDL bytes rather than trusting a self-declared manifest;
 - deterministic tag mappings;
 - auxiliary mass mapping;
 - model source SHA-256;
@@ -91,10 +92,12 @@ When present, admission verifies:
 1. current model path equals the rendered model artifact path;
 2. current source SHA equals the render manifest;
 3. current bundle fingerprint equals the render manifest;
-4. render fingerprint recomputes exactly;
-5. render manifest ModelSpec fingerprint equals AnalysisSpec.modelSpecFingerprint;
-6. ModelSpec length/time units equal solverOptions.modelUnits;
-7. identity node/element mapping is declared by the renderer.
+4. retained normalized ModelSpec content revalidates to the declared ModelSpec fingerprint;
+5. deterministic regeneration from that retained ModelSpec reproduces the current APDL source SHA exactly;
+6. render fingerprint recomputes exactly;
+7. render manifest ModelSpec fingerprint equals AnalysisSpec.modelSpecFingerprint;
+8. ModelSpec length/time units equal solverOptions.modelUnits;
+9. identity node/element and deterministic auxiliary-mass mappings are declared by the renderer.
 
 Only then PR29 reports:
 
