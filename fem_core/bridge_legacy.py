@@ -19,6 +19,7 @@ from fem_core.load_standardization import standardize_load
 from fem_core.model_inspection import inspect_model
 from fem_core.model_spec import (
     evaluate_engineering_model_readiness,
+    render_ansys_frame_2d,
     render_opensees_frame_2d,
     validate_engineering_model_spec,
 )
@@ -150,6 +151,8 @@ def handle_request(
             result = evaluate_engineering_model_readiness(_required_object(payload, "spec"))
         elif command == "modelSpec.renderOpenSees":
             result = render_opensees_frame_2d(workspace, _required_object(payload, "spec"))
+        elif command == "modelSpec.renderAnsys":
+            result = render_ansys_frame_2d(workspace, _required_object(payload, "spec"))
         elif command == "requirement.complete":
             result = complete_engineering_requirement(_required_object(payload, "draft"))
         elif command == "load.inspect":
