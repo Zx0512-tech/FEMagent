@@ -13,6 +13,7 @@ from fem_core.model_spec import (
     validate_engineering_model_spec,
     verify_ansys_model_render,
 )
+from fem_core.solvers import get_solver_adapter
 from fem_core.solvers.ansys_v2_analysis import build_ansys_v2_execution_plan
 
 MODEL_FIXTURE = Path("tests/fixtures/model_spec/simple-portal-frame.json")
@@ -261,10 +262,7 @@ def test_ansys_adapter_preflight_carries_machine_proven_render_binding(
     rendered = render_ansys_frame_2d(tmp_path, model)
     load_path, load_sha = _load(tmp_path)
 
-    report = __import__(
-        "fem_core.solvers",
-        fromlist=["get_solver_adapter"],
-    ).get_solver_adapter("ansys").preflight(
+    report = get_solver_adapter("ansys").preflight(
         tmp_path,
         model_path=rendered["artifacts"]["modelPath"],
         load_path=None,
