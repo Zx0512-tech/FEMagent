@@ -43,6 +43,7 @@ const { session } = await createAgentSession({
     "fem_model_spec_validate",
     "fem_model_spec_readiness",
     "fem_model_render_opensees",
+    "fem_model_render_ansys",
     "fem_analysis_spec_validate",
     "fem_analysis_requirement_complete",
     "fem_earthquake_workflow_prepare",

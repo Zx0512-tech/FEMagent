@@ -11,6 +11,9 @@ function executionContext(input: Record<string, unknown>): string {
     const fingerprint = typeof v2.confirmedBundleFingerprint === "string"
       ? v2.confirmedBundleFingerprint
       : "";
+    const renderManifestPath = typeof v2.renderManifestPath === "string"
+      ? v2.renderManifestPath
+      : "";
     if (spec && typeof spec === "object") {
       const analysisSpec = spec as Record<string, unknown>;
       const definition = analysisSpec.definition;
@@ -28,6 +31,9 @@ function executionContext(input: Record<string, unknown>): string {
         `Excitation: ${String(excitation.component ?? "?")}-direction ${String(excitation.type ?? "unknown")}`,
         `dt/duration: ${String(time.timeStep ?? "?")} / ${String(time.duration ?? "?")}`,
         fingerprint ? `APDL bundle: ${fingerprint.slice(0, 12)}…` : "",
+        renderManifestPath
+          ? `Model binding: deterministic ModelSpec render (${renderManifestPath})`
+          : "Model binding: external APDL exact-byte binding",
       ].filter(Boolean).join("\n");
     }
   }

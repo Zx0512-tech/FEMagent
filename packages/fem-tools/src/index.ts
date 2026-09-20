@@ -135,6 +135,13 @@ export {
   type FemOpenSeesPythonModelInspection,
 } from "./modelTypes.js";
 export {
+  type FemAnsysAuxiliaryMassMapping,
+  type FemAnsysBlockedRenderResult,
+  type FemAnsysRenderedResult,
+  type FemAnsysRenderArtifacts,
+  type FemAnsysRenderMapping,
+  type FemAnsysRenderRenderer,
+  type FemAnsysRenderResult,
   type FemEngineeringModelSpecInput,
   type FemModelSpecConstraint,
   type FemModelSpecCoordinateSystem,
@@ -168,7 +175,10 @@ export {
   type FemOpenSeesRenderRenderer,
   type FemOpenSeesRenderResult,
 } from "./modelSpecTypes.js";
-export { runFemModelSpecRenderOpenSees } from "./modelSpecRender.js";
+export {
+  runFemModelSpecRenderAnsys,
+  runFemModelSpecRenderOpenSees,
+} from "./modelSpecRender.js";
 export { runFemRequirementComplete } from "./requirementCompletion.js";
 export {
   type FemElementConnectivityRequirementFact,

@@ -16,6 +16,7 @@ export interface FemAnsysModelUnits {
 export interface FemAnsysV2Options {
   analysisSpec: FemEngineeringBaseTransientAnalysisSpecV2Input;
   confirmedBundleFingerprint: string;
+  renderManifestPath?: string;
 }
 
 export interface FemAnsysV2ResultRequest {
@@ -35,13 +36,29 @@ export interface FemAnsysV2Admission {
   profile: "ANSYS_APDL_TRANSIENT_UNIFORM_BASE_V2";
   analysisSpecFingerprint: string;
   declaredModelSpecFingerprint: string;
-  binding: {
-    mode: "EXPLICIT_BUNDLE_CONFIRMATION";
-    confirmedBundleFingerprint: string;
-    currentBundleFingerprint: string;
-    targetIdPolicy: "IDENTITY";
-    semanticEquivalence: "NOT_MACHINE_PROVEN";
-  };
+  binding:
+    | {
+        mode: "EXPLICIT_BUNDLE_CONFIRMATION";
+        confirmedBundleFingerprint: string;
+        currentBundleFingerprint: string;
+        targetIdPolicy: "IDENTITY";
+        semanticEquivalence: "NOT_MACHINE_PROVEN";
+      }
+    | {
+        mode: "DETERMINISTIC_MODEL_SPEC_RENDER";
+        confirmedBundleFingerprint: string;
+        currentBundleFingerprint: string;
+        targetIdPolicy: "IDENTITY";
+        semanticEquivalence: "MACHINE_PROVEN_RENDER_BINDING";
+        renderManifestPath: string;
+        renderFingerprint: string;
+        renderer: {
+          name: "ANSYS_FRAME_2D_BEAM3_V1";
+          version: "1.0";
+          elementMapping: "BEAM3_PLANAR_EULER_BERNOULLI";
+          massMapping: "MASS21_EXPLICIT_MASSX_MASSY";
+        };
+      };
   modelUnits: FemAnsysModelUnits;
   load: {
     path: string;

@@ -174,3 +174,74 @@ export interface FemOpenSeesBlockedRenderResult {
 }
 
 export type FemOpenSeesRenderResult = FemOpenSeesRenderedResult | FemOpenSeesBlockedRenderResult;
+
+
+export interface FemAnsysRenderRenderer {
+  name: "ANSYS_FRAME_2D_BEAM3_V1";
+  version: "1.0";
+  elementMapping: "BEAM3_PLANAR_EULER_BERNOULLI";
+  massMapping: "MASS21_EXPLICIT_MASSX_MASSY";
+}
+
+export interface FemAnsysAuxiliaryMassMapping {
+  nodeId: number;
+  elementId: number;
+  realConstantId: number;
+}
+
+export interface FemAnsysRenderMapping {
+  nodeTagPolicy: "IDENTITY";
+  frameElementTagPolicy: "IDENTITY";
+  materialIdPolicy: "IDENTITY";
+  sectionRealConstantIdPolicy: "IDENTITY";
+  frameElementTypeId: 1;
+  massElementTypeId: 2 | null;
+  auxiliaryMassElements: FemAnsysAuxiliaryMassMapping[];
+  nodeCount: number;
+  frameElementCount: number;
+}
+
+export interface FemAnsysRenderArtifacts {
+  modelPath: string;
+  modelSha256: string;
+  bundleFingerprint: string;
+  manifestPath: string;
+}
+
+export interface FemAnsysRenderedResult {
+  schema: "FEMAGENT_ANSYS_MODEL_RENDER_V1";
+  status: "RENDERED";
+  renderId: string;
+  renderer: FemAnsysRenderRenderer;
+  input: {
+    modelSpecFingerprint: string;
+    readinessProfile: "FRAME_2D_ELASTIC_READINESS_V1";
+    units: FemModelSpecUnits;
+    normalizedModelSpec: FemEngineeringModelSpecInput;
+  };
+  mapping: FemAnsysRenderMapping;
+  executionScaffold: {
+    profile: "ANSYS_TRANSIENT_INJECTION_HOOK_V1";
+    analysisCommand: "ANTYPE,TRANS";
+    solveCommand: "SOLVE";
+    ownsLoad: false;
+    ownsDamping: false;
+    ownsTimeControls: false;
+  };
+  artifacts: FemAnsysRenderArtifacts;
+  renderFingerprint: string;
+}
+
+export interface FemAnsysBlockedRenderResult {
+  schema: "FEMAGENT_ANSYS_MODEL_RENDER_V1";
+  status: "BLOCKED";
+  reason: "MODEL_NOT_READY";
+  readiness: FemModelSpecReadiness;
+  renderId: null;
+  artifacts: null;
+  renderFingerprint: null;
+}
+
+export type FemAnsysRenderResult =
+  | FemAnsysRenderedResult
+  | FemAnsysBlockedRenderResult;

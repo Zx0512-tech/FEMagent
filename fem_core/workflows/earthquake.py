@@ -14,7 +14,10 @@ from fem_core.analysis_requirements import complete_engineering_analysis_require
 from fem_core.analysis_spec import evaluate_engineering_analysis_readiness, render_opensees_analysis
 from fem_core.errors import FemCoreError
 from fem_core.model_inspection import inspect_model
-from fem_core.model_spec import validate_engineering_model_spec
+from fem_core.model_spec import (
+    render_ansys_frame_2d,
+    validate_engineering_model_spec,
+)
 from fem_core.pathing import resolve_workspace_file, workspace_relative_path
 from fem_core.result_intelligence import inspect_result, query_result
 from fem_core.solvers import get_solver_adapter
@@ -249,16 +252,49 @@ def _ansys_prepare(
     solver_model_path: str | None,
     adapter_factory: Callable[[str], Any],
 ) -> dict[str, Any]:
-    if not isinstance(solver_model_path, str) or not solver_model_path.strip():
-        report["status"] = "NEEDS_INPUT"
-        report["warnings"].append(
-            {
-                "code": "EARTHQUAKE_WORKFLOW_ANSYS_MODEL_PATH_REQUIRED",
-                "message": "ANSYS workflow preparation requires a workspace-relative APDL model entrypoint",
-            }
-        )
+    model_validation = validate_engineering_model_spec(model_spec)
+    normalized_model = model_validation.get("normalizedSpec")
+    if not isinstance(normalized_model, dict):
+        report["status"] = "PREFLIGHT_BLOCKED"
         return report
 
+    render_manifest_path: str | None = None
+    generated_from_model_spec = (
+        not isinstance(solver_model_path, str) or not solver_model_path.strip()
+    )
+    if generated_from_model_spec:
+        component = str(analysis_spec["definition"]["excitation"]["component"])
+        mass_check = _positive_excited_mass(normalized_model, component)
+        if mass_check["status"] != "PASS":
+            report["analysisReadiness"] = {
+                "status": "NOT_READY",
+                "checks": {"workflowExcitedMass": mass_check},
+                "issues": [
+                    {
+                        "severity": "ERROR",
+                        "code": "EARTHQUAKE_WORKFLOW_ANSYS_EXCITED_MASS_UNPROVEN",
+                        "path": "modelSpec.nodalMasses",
+                        "message": (
+                            "Generated ANSYS uniform-base execution requires at least "
+                            f"one positive {mass_check['massField']} nodal mass in the "
+                            f"excited {component} direction"
+                        ),
+                    }
+                ],
+            }
+            report["status"] = "ANALYSIS_NOT_READY"
+            return report
+
+        rendered = render_ansys_frame_2d(workspace, model_spec)
+        report["render"] = rendered
+        if rendered.get("status") != "RENDERED":
+            report["status"] = "ANALYSIS_NOT_READY"
+            return report
+        artifacts = rendered["artifacts"]
+        solver_model_path = str(artifacts["modelPath"])
+        render_manifest_path = str(artifacts["manifestPath"])
+
+    assert isinstance(solver_model_path, str)
     inspection = inspect_model(workspace, solver_model_path)
     report["modelInspection"] = inspection
     if inspection.get("format") != "ANSYS_APDL_TEXT":
@@ -271,7 +307,9 @@ def _ansys_prepare(
         )
         return report
     bundle = inspection.get("bundle")
-    bundle_fingerprint = bundle.get("bundleFingerprint") if isinstance(bundle, dict) else None
+    bundle_fingerprint = (
+        bundle.get("bundleFingerprint") if isinstance(bundle, dict) else None
+    )
     if (
         not isinstance(bundle, dict)
         or bundle.get("integrity") != "VALID"
@@ -287,21 +325,19 @@ def _ansys_prepare(
         )
         return report
 
-    model_validation = validate_engineering_model_spec(model_spec)
-    normalized_model = model_validation.get("normalizedSpec")
-    if not isinstance(normalized_model, dict):
-        report["status"] = "PREFLIGHT_BLOCKED"
-        return report
     model_units = {
         "length": normalized_model["units"]["length"],
         "time": normalized_model["units"]["time"],
     }
+    ansys_v2_options: dict[str, Any] = {
+        "analysisSpec": copy.deepcopy(analysis_spec),
+        "confirmedBundleFingerprint": bundle_fingerprint,
+    }
+    if render_manifest_path is not None:
+        ansys_v2_options["renderManifestPath"] = render_manifest_path
     solver_options = {
         "modelUnits": model_units,
-        "ansysV2": {
-            "analysisSpec": copy.deepcopy(analysis_spec),
-            "confirmedBundleFingerprint": bundle_fingerprint,
-        },
+        "ansysV2": ansys_v2_options,
     }
     request = {
         "solver": "ansys",
@@ -330,28 +366,57 @@ def _ansys_prepare(
             }
         )
         return report
-    report["warnings"].append(
-        {
-            "code": "EARTHQUAKE_WORKFLOW_ANSYS_SEMANTIC_EQUIVALENCE_NOT_PROVEN",
-            "message": (
-                "ANSYS execution is bound to exact APDL bundle bytes; semantic equivalence "
-                "to the AnalysisSpec ModelSpec fingerprint is not machine-proven"
-            ),
-        }
-    )
+
+    binding = admission.get("binding")
+    if not isinstance(binding, dict):
+        report["status"] = "PREFLIGHT_BLOCKED"
+        report["warnings"].append(
+            {
+                "code": "EARTHQUAKE_WORKFLOW_ANSYS_ADMISSION_BINDING_MISSING",
+                "message": "ANSYS admission did not expose a deterministic binding record",
+            }
+        )
+        return report
+
+    if binding.get("semanticEquivalence") == "NOT_MACHINE_PROVEN":
+        report["warnings"].append(
+            {
+                "code": "EARTHQUAKE_WORKFLOW_ANSYS_SEMANTIC_EQUIVALENCE_NOT_PROVEN",
+                "message": (
+                    "ANSYS execution is bound to exact APDL bundle bytes; semantic "
+                    "equivalence to the AnalysisSpec ModelSpec fingerprint is not "
+                    "machine-proven"
+                ),
+            }
+        )
+
+    solver_binding = {
+        "mode": (
+            "DETERMINISTIC_ANSYS_MODEL_RENDER"
+            if binding.get("mode") == "DETERMINISTIC_MODEL_SPEC_RENDER"
+            else "EXPLICIT_ANSYS_BUNDLE_BINDING"
+        ),
+        "bundleFingerprint": bundle_fingerprint,
+        "targetIdPolicy": binding.get("targetIdPolicy"),
+        "semanticEquivalence": binding.get("semanticEquivalence"),
+        "executionIntentFingerprint": admission.get("executionIntentFingerprint"),
+    }
+    if binding.get("mode") == "DETERMINISTIC_MODEL_SPEC_RENDER":
+        solver_binding.update(
+            {
+                "renderManifestPath": binding.get("renderManifestPath"),
+                "renderFingerprint": binding.get("renderFingerprint"),
+                "renderer": copy.deepcopy(binding.get("renderer")),
+            }
+        )
+
     return _freeze_ready_workflow(
         workspace,
         report=report,
         model_spec=model_spec,
         analysis_spec=analysis_spec,
         solver_run_request=request,
-        solver_binding={
-            "mode": "EXPLICIT_ANSYS_BUNDLE_BINDING",
-            "bundleFingerprint": bundle_fingerprint,
-            "targetIdPolicy": admission.get("binding", {}).get("targetIdPolicy"),
-            "semanticEquivalence": admission.get("binding", {}).get("semanticEquivalence"),
-            "executionIntentFingerprint": admission.get("executionIntentFingerprint"),
-        },
+        solver_binding=solver_binding,
     )
 
 
@@ -573,6 +638,26 @@ def _bind_run_to_workflow(
                 "EARTHQUAKE_WORKFLOW_RUN_BUNDLE_MISMATCH",
                 "ANSYS run Model Bundle fingerprint does not match the workflow",
             )
+        workflow_binding = workflow.get("solverBinding", {})
+        if workflow_binding.get("mode") == "DETERMINISTIC_ANSYS_MODEL_RENDER":
+            run_admission = run_manifest.get("analysisAdmission")
+            run_binding = (
+                run_admission.get("binding")
+                if isinstance(run_admission, dict)
+                else None
+            )
+            if (
+                not isinstance(run_binding, dict)
+                or run_binding.get("mode") != "DETERMINISTIC_MODEL_SPEC_RENDER"
+                or run_binding.get("semanticEquivalence")
+                != "MACHINE_PROVEN_RENDER_BINDING"
+                or run_binding.get("renderFingerprint")
+                != workflow_binding.get("renderFingerprint")
+            ):
+                raise FemCoreError(
+                    "EARTHQUAKE_WORKFLOW_RUN_RENDER_MISMATCH",
+                    "ANSYS run deterministic render binding does not match the prepared workflow",
+                )
     if received_analysis != expected_analysis:
         raise FemCoreError(
             "EARTHQUAKE_WORKFLOW_RUN_ANALYSIS_MISMATCH",

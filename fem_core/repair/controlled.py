@@ -237,7 +237,10 @@ def _diagnose_readiness(preparation: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(issue, dict) or issue.get("severity") != "ERROR":
             continue
         code = str(issue.get("code") or "")
-        if code == "EARTHQUAKE_WORKFLOW_OPENSEES_EXCITED_MASS_UNPROVEN":
+        if code in {
+            "EARTHQUAKE_WORKFLOW_OPENSEES_EXCITED_MASS_UNPROVEN",
+            "EARTHQUAKE_WORKFLOW_ANSYS_EXCITED_MASS_UNPROVEN",
+        }:
             actions.append(
                 _action(
                     action_id="repair_model_mass",
