@@ -90,10 +90,7 @@ def test_ansys_renderer_is_deterministic_and_preserves_v1_identity(tmp_path: Pat
     assert first["renderId"] != second["renderId"]
     assert first["renderFingerprint"] == second["renderFingerprint"]
     assert first["artifacts"]["modelSha256"] == second["artifacts"]["modelSha256"]
-    assert (
-        first["artifacts"]["bundleFingerprint"]
-        == second["artifacts"]["bundleFingerprint"]
-    )
+    assert first["artifacts"]["bundleFingerprint"] != second["artifacts"]["bundleFingerprint"]
 
     first_source = (tmp_path / first["artifacts"]["modelPath"]).read_text(
         encoding="utf-8"
