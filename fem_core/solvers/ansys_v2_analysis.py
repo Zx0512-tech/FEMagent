@@ -15,6 +15,7 @@ from fem_core.analysis_spec.validator import validate_engineering_analysis_spec
 from fem_core.ansys_bundle import ANSYS_BUNDLE_SUFFIXES
 from fem_core.errors import FemCoreError
 from fem_core.model_inspection import inspect_model
+from fem_core.model_spec.ansys_renderer import verify_ansys_model_render
 from fem_core.pathing import resolve_workspace_file
 from fem_core.solvers.ansys_load import (
     inspect_ansys_transient_injection,
@@ -373,6 +374,9 @@ def _intent_fingerprint(plan: dict[str, Any]) -> str:
         "profile": plan["profile"],
         "analysisSpecFingerprint": plan["analysisSpecFingerprint"],
         "currentBundleFingerprint": plan["binding"]["currentBundleFingerprint"],
+        "bindingMode": plan["binding"]["mode"],
+        "semanticEquivalence": plan["binding"]["semanticEquivalence"],
+        "renderFingerprint": plan["binding"].get("renderFingerprint"),
         "loadSha256": plan["load"]["sha256"],
         "modelUnits": plan["modelUnits"],
         "time": plan["time"],
@@ -391,6 +395,7 @@ def build_ansys_v2_execution_plan(
     analysis_spec: dict[str, Any],
     model_units: dict[str, Any],
     confirmed_bundle_fingerprint: str,
+    render_manifest_path: str | None = None,
 ) -> dict[str, Any]:
     units = _supported_model_units(model_units)
     validation = validate_engineering_analysis_spec(analysis_spec)
@@ -444,6 +449,30 @@ def build_ansys_v2_execution_plan(
             },
         )
 
+    verified_render: dict[str, Any] | None = None
+    if render_manifest_path is not None:
+        verified_render = verify_ansys_model_render(
+            workspace,
+            model_path=model_path,
+            manifest_path=render_manifest_path,
+            expected_model_spec_fingerprint=str(
+                normalized_analysis["modelSpecFingerprint"]
+            ),
+        )
+        render_units = verified_render.get("units", {})
+        if (
+            render_units.get("length") != units["length"]
+            or render_units.get("time") != units["time"]
+        ):
+            raise FemCoreError(
+                "ANSYS_MODEL_RENDER_UNIT_MISMATCH",
+                "Verified ANSYS render units do not match solverOptions.modelUnits",
+                details={
+                    "renderUnits": render_units,
+                    "modelUnits": units,
+                },
+            )
+
     generation = inspection.get("manifest", {}).get("generation", {})
     node_tags = inspection.get("manifest", {}).get("topology", {}).get("nodeTags")
     if (
@@ -483,13 +512,26 @@ def build_ansys_v2_execution_plan(
         "profile": ANSYS_V2_PROFILE,
         "analysisSpecFingerprint": analysis_fingerprint,
         "declaredModelSpecFingerprint": normalized_analysis["modelSpecFingerprint"],
-        "binding": {
-            "mode": "EXPLICIT_BUNDLE_CONFIRMATION",
-            "confirmedBundleFingerprint": confirmed_bundle_fingerprint,
-            "currentBundleFingerprint": current_bundle_fingerprint,
-            "targetIdPolicy": "IDENTITY",
-            "semanticEquivalence": "NOT_MACHINE_PROVEN",
-        },
+        "binding": (
+            {
+                "mode": "DETERMINISTIC_MODEL_SPEC_RENDER",
+                "confirmedBundleFingerprint": confirmed_bundle_fingerprint,
+                "currentBundleFingerprint": current_bundle_fingerprint,
+                "targetIdPolicy": "IDENTITY",
+                "semanticEquivalence": "MACHINE_PROVEN_RENDER_BINDING",
+                "renderManifestPath": verified_render["manifestPath"],
+                "renderFingerprint": verified_render["renderFingerprint"],
+                "renderer": verified_render["renderer"],
+            }
+            if verified_render is not None
+            else {
+                "mode": "EXPLICIT_BUNDLE_CONFIRMATION",
+                "confirmedBundleFingerprint": confirmed_bundle_fingerprint,
+                "currentBundleFingerprint": current_bundle_fingerprint,
+                "targetIdPolicy": "IDENTITY",
+                "semanticEquivalence": "NOT_MACHINE_PROVEN",
+            }
+        ),
         "modelUnits": units,
         "load": load_report,
         "time": time_report,
