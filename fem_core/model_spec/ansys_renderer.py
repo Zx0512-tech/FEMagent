@@ -312,6 +312,7 @@ def render_ansys_frame_2d(
                 "modelSpecFingerprint": model_spec_fingerprint,
                 "readinessProfile": SUPPORTED_READINESS_PROFILE,
                 "units": dict(normalized["units"]),
+                "normalizedModelSpec": normalized,
             },
             "mapping": {
                 "nodeTagPolicy": "IDENTITY",
@@ -434,6 +435,44 @@ def verify_ansys_model_render(
             },
         )
 
+    manifest_input = manifest.get("input")
+    if not isinstance(manifest_input, dict):
+        raise FemCoreError(
+            "ANSYS_MODEL_RENDER_MANIFEST_INVALID",
+            "ANSYS render manifest input must be a JSON object",
+        )
+    model_spec_fingerprint = manifest_input.get("modelSpecFingerprint")
+    normalized_model_spec = manifest_input.get("normalizedModelSpec")
+    if not isinstance(normalized_model_spec, dict):
+        raise FemCoreError(
+            "ANSYS_MODEL_RENDER_MANIFEST_INVALID",
+            "ANSYS render manifest must retain the normalized ModelSpec used for deterministic regeneration",
+        )
+    model_validation = validate_engineering_model_spec(normalized_model_spec)
+    if (
+        model_validation.get("status") != "VALID"
+        or model_validation.get("modelSpecFingerprint")
+        != model_spec_fingerprint
+    ):
+        raise FemCoreError(
+            "ANSYS_MODEL_RENDER_MODEL_SPEC_MISMATCH",
+            "ANSYS render manifest ModelSpec content does not reproduce its declared fingerprint",
+        )
+    expected_source, expected_mass_mapping = build_ansys_frame_2d_source(
+        normalized_model_spec,
+        model_spec_fingerprint=str(model_spec_fingerprint),
+    )
+    expected_source_sha = sha256(expected_source.encode("utf-8")).hexdigest()
+    if expected_source_sha != current_model_sha:
+        raise FemCoreError(
+            "ANSYS_MODEL_RENDER_SOURCE_NOT_REPRODUCIBLE",
+            "Current ANSYS source is not the deterministic rendering of the retained ModelSpec",
+            details={
+                "expectedSourceSha256": expected_source_sha,
+                "actualSourceSha256": current_model_sha,
+            },
+        )
+
     model_spec_fingerprint = manifest.get("input", {}).get(
         "modelSpecFingerprint"
     )
@@ -465,6 +504,7 @@ def verify_ansys_model_render(
         not isinstance(mapping, dict)
         or mapping.get("nodeTagPolicy") != "IDENTITY"
         or mapping.get("frameElementTagPolicy") != "IDENTITY"
+        or mapping.get("auxiliaryMassElements") != expected_mass_mapping
     ):
         raise FemCoreError(
             "ANSYS_MODEL_RENDER_MAPPING_UNPROVEN",
