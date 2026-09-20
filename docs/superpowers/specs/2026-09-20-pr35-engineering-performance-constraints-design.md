@@ -220,3 +220,14 @@ FEASIBLE / INFEASIBLE
 ```
 
 The optimizer itself is not part of PR35.
+
+
+## Agent integration
+
+PR35 adds one SAFE read-only Agent tool:
+
+`fem_performance_evaluate`
+
+The tool requires a complete PR34 metric request plus explicit upper-bound constraints. Its prompt contract forbids inventing code limits, allowable displacement, device stroke, force capacity, units, or solver execution.
+
+The existing semantic inspection tools remain the only supported way for the Agent to discover declared role IDs. No semantic-role inference is introduced.
