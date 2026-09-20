@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   runFemModelSpecReadiness,
+  runFemModelSpecRenderAnsys,
   runFemModelSpecRenderOpenSees,
   runFemModelSpecValidate,
   type FemEngineeringModelSpecInput,
@@ -187,4 +188,32 @@ export default function modelSpecToolsExtension(pi: ExtensionAPI) {
       return toolResult(report);
     },
   });
+
+  pi.registerTool({
+    name: "fem_model_render_ansys",
+    label: "Render ANSYS FEM Model",
+    description:
+      "Render a PR22-ready V1 2D elastic-frame ModelSpec into a deterministic ANSYS MAPDL bundle with machine-verifiable ModelSpec provenance. It writes controlled artifacts but never executes ANSYS.",
+    promptSnippet:
+      "Create a deterministic ANSYS APDL model from validated ModelSpec facts without inventing missing section or material properties",
+    promptGuidelines: [
+      "Use this only for the existing V1 planar elastic-frame ModelSpec domain. The renderer re-runs validation and readiness and blocks non-READY specs.",
+      "The deterministic mapping uses planar BEAM3 because V1 defines only A and Iz; do not invent BEAM188/189 section geometry, Iy, J, Poisson ratio, density, or shear properties.",
+      "Explicit ModelSpec nodal mUX/mUY values are mapped through MASS21. The renderer never derives or guesses missing mass.",
+      "The output contains only a controlled ANTYPE,TRANS/SOLVE injection scaffold; PR29 remains responsible for earthquake ACEL, damping, dt, duration, and result controls.",
+      "RENDERED proves deterministic ModelSpec→APDL provenance and tag mapping, not that a licensed ANSYS runtime has successfully built or solved the model.",
+      "Do not edit the generated APDL or render manifest before preflight. Any change invalidates machine-proven binding.",
+      "This tool never calls fem_solver_run.",
+    ],
+    parameters: Type.Object({ spec: modelSpecSchema }, { additionalProperties: false }),
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const report = await runFemModelSpecRenderAnsys(
+        ctx.cwd,
+        params.spec as FemEngineeringModelSpecInput,
+        signal,
+      );
+      return toolResult(report);
+    },
+  });
+
 }
