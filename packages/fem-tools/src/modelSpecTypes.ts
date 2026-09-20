@@ -217,6 +217,7 @@ export interface FemAnsysRenderedResult {
     modelSpecFingerprint: string;
     readinessProfile: "FRAME_2D_ELASTIC_READINESS_V1";
     units: FemModelSpecUnits;
+    normalizedModelSpec: FemEngineeringModelSpecInput;
   };
   mapping: FemAnsysRenderMapping;
   executionScaffold: {
