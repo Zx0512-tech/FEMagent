@@ -158,3 +158,17 @@ The report records:
 - fatigue/fracture metrics;
 - optimization objective ranking;
 - solver execution.
+
+
+## Agent integration
+
+PR34 adds one SAFE read-only Agent tool:
+
+`fem_response_metrics_compute`
+
+Because metric requests must use explicit role IDs rather than inferred engineering meaning, the default Agent surface also exposes the existing SAFE semantic inspection/resolution tools:
+
+- `fem_semantic_inspect`
+- `fem_semantic_resolve`
+
+This does not add semantic-role creation or inference.
