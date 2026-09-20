@@ -25,6 +25,7 @@ from fem_core.model_spec import (
 )
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
 from fem_core.requirements import complete_engineering_requirement
+from fem_core.response_metrics import compute_engineering_response_metrics
 from fem_core.result_intelligence import inspect_result, query_result
 from fem_core.semantic_roles import inspect_semantic_roles, resolve_semantic_role
 from fem_core.semantic_roles.evidence import project_role_evidence
@@ -187,6 +188,11 @@ def handle_request(
                 workspace,
                 _required_text(payload, "runRef"),
                 _required_object(payload, "query"),
+            )
+        elif command == "responseMetrics.compute":
+            result = compute_engineering_response_metrics(
+                workspace,
+                _required_object(payload, "request"),
             )
         elif command == "evidence.project":
             result = project_run_evidence(
