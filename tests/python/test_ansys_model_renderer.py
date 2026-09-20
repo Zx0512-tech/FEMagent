@@ -286,3 +286,72 @@ def test_ansys_adapter_preflight_carries_machine_proven_render_binding(
     binding = report["analysisAdmission"]["binding"]
     assert binding["mode"] == "DETERMINISTIC_MODEL_SPEC_RENDER"
     assert binding["semanticEquivalence"] == "MACHINE_PROVEN_RENDER_BINDING"
+
+
+def _fake_ansys_runtime(tmp_path: Path) -> Path:
+    executable = tmp_path / "ansys_pr33_fake"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import shutil\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from ansys.mapdl.reader import examples\n"
+        "args = sys.argv[1:]\n"
+        "input_path = Path(args[args.index('-i') + 1]).resolve()\n"
+        "output_path = Path(args[args.index('-o') + 1]).resolve()\n"
+        "job_name = args[args.index('-j') + 1]\n"
+        "output_path.write_text('FAKE ANSYS PR33 OK\\n', encoding='utf-8')\n"
+        "if input_path.name != 'build_only.inp':\n"
+        "    text = input_path.read_text(encoding='utf-8')\n"
+        "    assert \"/INPUT,'femagent_load','mac'\" in text\n"
+        "    assert \"/INPUT,'femagent_analysis_v2','mac'\" in text\n"
+        "    shutil.copyfile(examples.rstfile, Path.cwd() / f'{job_name}.rst')\n",
+        encoding="utf-8",
+    )
+    executable.chmod(executable.stat().st_mode | 0o111)
+    return executable
+
+
+def test_generated_ansys_model_runs_through_existing_pr29_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executable = _fake_ansys_runtime(tmp_path)
+    monkeypatch.setenv("FEM_ANSYS_EXECUTABLE", str(executable))
+    model = _model()
+    validation = validate_engineering_model_spec(model)
+    model_fingerprint = validation["modelSpecFingerprint"]
+    assert isinstance(model_fingerprint, str)
+    rendered = render_ansys_frame_2d(tmp_path, model)
+    load_path, load_sha = _load(tmp_path)
+    options = {
+        "modelUnits": {"length": "m", "time": "s"},
+        "ansysV2": {
+            "analysisSpec": _analysis(
+                model_fingerprint,
+                load_path,
+                load_sha,
+            ),
+            "confirmedBundleFingerprint": rendered["artifacts"][
+                "bundleFingerprint"
+            ],
+            "renderManifestPath": rendered["artifacts"]["manifestPath"],
+        },
+    }
+
+    run = get_solver_adapter("ansys").run(
+        tmp_path,
+        model_path=rendered["artifacts"]["modelPath"],
+        load_path=None,
+        solver_options=options,
+    )
+
+    assert run["status"] == "COMPLETED"
+    binding = run["analysisAdmission"]["binding"]
+    assert binding["mode"] == "DETERMINISTIC_MODEL_SPEC_RENDER"
+    assert binding["semanticEquivalence"] == "MACHINE_PROVEN_RENDER_BINDING"
+    assert binding["renderFingerprint"] == rendered["renderFingerprint"]
+    assert run["model"]["bundleFingerprint"] == rendered["artifacts"][
+        "bundleFingerprint"
+    ]
+    assert run["analysis"]["declaredModelSpecFingerprint"] == model_fingerprint
