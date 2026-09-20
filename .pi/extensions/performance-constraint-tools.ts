@@ -120,7 +120,7 @@ export default function performanceConstraintToolsExtension(pi: ExtensionAPI) {
       "Use only limit values and units explicitly supplied by the user or authoritative project context. Never invent a code limit, allowable displacement, device stroke, or force capacity.",
       "Every constraint must reference a metricId declared inside the same metricsRequest.",
       "PR35 V1 supports operator=MAXIMUM only. SATISFIED means absolutePeak <= explicit limit with no hidden tolerance.",
-      "Units must match exactly. The tool performs no conversion; N vs kN or m vs mm is NOT_EVALUABLE rather than converted.",
+      "Units must match exactly. There is no unit conversion; N vs kN or m vs mm is NOT_EVALUABLE rather than converted.",
       "Unknown solver-native units, including unproven ANSYS units, are NOT_EVALUABLE for explicit physical constraints.",
       "DAMPER_RESPONSE force/deformation/velocity/dissipated-energy constraints require an explicit ELEMENT semantic role and a response channel already recorded by Result Intelligence.",
       "FEASIBLE means only that every explicit constraint in this request is satisfied. Do not present it as general structural safety or code compliance.",
