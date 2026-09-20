@@ -173,10 +173,34 @@ class _FakeReadyAnsysAdapter:
         load_path: str | None,
         solver_options: dict[str, Any],
     ) -> dict[str, Any]:
-        del workspace
-        assert model_path == "model.inp"
         assert load_path is None
         bundle = solver_options["ansysV2"]["confirmedBundleFingerprint"]
+        render_manifest_path = solver_options["ansysV2"].get(
+            "renderManifestPath"
+        )
+        if render_manifest_path is None:
+            binding = {
+                "mode": "EXPLICIT_BUNDLE_CONFIRMATION",
+                "confirmedBundleFingerprint": bundle,
+                "currentBundleFingerprint": bundle,
+                "targetIdPolicy": "IDENTITY",
+                "semanticEquivalence": "NOT_MACHINE_PROVEN",
+            }
+        else:
+            manifest = json.loads(
+                (workspace / render_manifest_path).read_text(encoding="utf-8")
+            )
+            assert model_path == manifest["artifacts"]["modelPath"]
+            binding = {
+                "mode": "DETERMINISTIC_MODEL_SPEC_RENDER",
+                "confirmedBundleFingerprint": bundle,
+                "currentBundleFingerprint": bundle,
+                "targetIdPolicy": "IDENTITY",
+                "semanticEquivalence": "MACHINE_PROVEN_RENDER_BINDING",
+                "renderManifestPath": render_manifest_path,
+                "renderFingerprint": manifest["renderFingerprint"],
+                "renderer": manifest["renderer"],
+            }
         return {
             "schemaVersion": "1.0",
             "kind": "solver_preflight",
@@ -194,13 +218,7 @@ class _FakeReadyAnsysAdapter:
                 "schema": "FEMAGENT_ANSYS_V2_EXECUTION_ADMISSION_V1",
                 "status": "ADMITTED",
                 "profile": "ANSYS_APDL_TRANSIENT_UNIFORM_BASE_V2",
-                "binding": {
-                    "mode": "EXPLICIT_BUNDLE_CONFIRMATION",
-                    "confirmedBundleFingerprint": bundle,
-                    "currentBundleFingerprint": bundle,
-                    "targetIdPolicy": "IDENTITY",
-                    "semanticEquivalence": "NOT_MACHINE_PROVEN",
-                },
+                "binding": binding,
                 "executionIntentFingerprint": "e" * 64,
             },
         }
@@ -336,7 +354,9 @@ def test_ansys_workflow_freezes_exact_bundle_and_pr29_options(tmp_path: Path) ->
     )
 
 
-def test_ansys_workflow_requires_model_path(tmp_path: Path) -> None:
+def test_ansys_workflow_auto_renders_modelspec_with_machine_proven_binding(
+    tmp_path: Path,
+) -> None:
     prepared = prepare_earthquake_workflow(
         tmp_path,
         solver="ansys",
@@ -346,11 +366,58 @@ def test_ansys_workflow_requires_model_path(tmp_path: Path) -> None:
         solver_adapter_factory=_fake_ansys_factory,
     )
 
-    assert prepared["status"] == "NEEDS_INPUT"
-    assert prepared["solverRunRequest"] is None
-    assert any(
-        item["code"] == "EARTHQUAKE_WORKFLOW_ANSYS_MODEL_PATH_REQUIRED"
+    assert prepared["status"] == "READY_FOR_CONFIRMATION"
+    assert prepared["render"]["status"] == "RENDERED"
+    request = prepared["solverRunRequest"]
+    assert request["modelPath"] == prepared["render"]["artifacts"]["modelPath"]
+    assert request["solverOptions"]["ansysV2"]["renderManifestPath"] == (
+        prepared["render"]["artifacts"]["manifestPath"]
+    )
+    binding = prepared["preflight"]["analysisAdmission"]["binding"]
+    assert binding["mode"] == "DETERMINISTIC_MODEL_SPEC_RENDER"
+    assert binding["semanticEquivalence"] == "MACHINE_PROVEN_RENDER_BINDING"
+    assert not any(
+        item["code"]
+        == "EARTHQUAKE_WORKFLOW_ANSYS_SEMANTIC_EQUIVALENCE_NOT_PROVEN"
         for item in prepared["warnings"]
+    )
+
+    manifest_path = tmp_path / prepared["workflowManifest"]["path"]
+    workflow_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert workflow_manifest["solverBinding"]["mode"] == (
+        "DETERMINISTIC_ANSYS_MODEL_RENDER"
+    )
+    assert workflow_manifest["solverBinding"]["semanticEquivalence"] == (
+        "MACHINE_PROVEN_RENDER_BINDING"
+    )
+    assert workflow_manifest["solverBinding"]["renderFingerprint"] == (
+        prepared["render"]["renderFingerprint"]
+    )
+
+
+def test_generated_ansys_workflow_requires_excited_direction_mass(
+    tmp_path: Path,
+) -> None:
+    model = _small_model()
+    model["nodalMasses"] = []
+    prepared = prepare_earthquake_workflow(
+        tmp_path,
+        solver="ansys",
+        draft=_draft(displacement_node=2, reaction_node=1),
+        model_spec=model,
+        load_artifact_path=_write_load(tmp_path),
+        solver_adapter_factory=_fake_ansys_factory,
+    )
+
+    assert prepared["status"] == "ANALYSIS_NOT_READY"
+    assert prepared["render"] is None
+    assert prepared["solverRunRequest"] is None
+    assert prepared["analysisReadiness"]["checks"]["workflowExcitedMass"][
+        "status"
+    ] == "FAIL"
+    assert any(
+        item["code"] == "EARTHQUAKE_WORKFLOW_ANSYS_EXCITED_MASS_UNPROVEN"
+        for item in prepared["analysisReadiness"]["issues"]
     )
 
 
