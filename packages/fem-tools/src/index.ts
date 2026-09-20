@@ -1,4 +1,16 @@
 export {
+  type FemControlledRepairAction,
+  type FemControlledRepairCategory,
+  type FemControlledRepairPlan,
+  type FemControlledRepairPlanStatus,
+  type FemControlledRepairResolution,
+  type FemControlledRepairRetry,
+} from "./controlledRepairTypes.js";
+export {
+  runFemControlledRepairPlan,
+  runFemControlledRepairRetry,
+} from "./controlledRepair.js";
+export {
   type FemEarthquakeWorkflowEngineeringSummary,
   type FemEarthquakeWorkflowManifest,
   type FemEarthquakeWorkflowManifestRef,
