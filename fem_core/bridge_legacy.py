@@ -23,6 +23,7 @@ from fem_core.model_spec import (
     render_opensees_frame_2d,
     validate_engineering_model_spec,
 )
+from fem_core.performance_constraints import evaluate_engineering_performance
 from fem_core.protocol import BRIDGE_PROTOCOL, error_envelope, success_envelope
 from fem_core.requirements import complete_engineering_requirement
 from fem_core.response_metrics import compute_engineering_response_metrics
@@ -191,6 +192,11 @@ def handle_request(
             )
         elif command == "responseMetrics.compute":
             result = compute_engineering_response_metrics(
+                workspace,
+                _required_object(payload, "request"),
+            )
+        elif command == "performance.evaluate":
+            result = evaluate_engineering_performance(
                 workspace,
                 _required_object(payload, "request"),
             )
