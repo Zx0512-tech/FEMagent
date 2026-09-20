@@ -406,3 +406,40 @@ def test_ansys_missing_model_path_is_user_input_not_guessed() -> None:
     )
     assert plan["status"] == "USER_ACTION_REQUIRED"
     assert action["resolutionTypes"] == ["SET_ANSYS_MODEL_PATH"]
+
+
+def test_generated_ansys_missing_mass_uses_same_controlled_model_repair() -> None:
+    workflow_input = {
+        "solver": "ansys",
+        "draft": {"facts": []},
+        "modelSpec": {},
+        "loadArtifactPath": "loads/eq.csv",
+    }
+    failed = {
+        "status": "ANALYSIS_NOT_READY",
+        "analysisCompletion": {"status": "COMPLETE"},
+        "analysisReadiness": {
+            "status": "NOT_READY",
+            "issues": [
+                {
+                    "severity": "ERROR",
+                    "code": "EARTHQUAKE_WORKFLOW_ANSYS_EXCITED_MASS_UNPROVEN",
+                    "path": "modelSpec.nodalMasses",
+                    "message": "mass required",
+                }
+            ],
+        },
+        "preflight": None,
+        "warnings": [],
+    }
+
+    plan = plan_controlled_repair(
+        workflow_input=workflow_input,
+        failed_preparation=failed,
+    )
+
+    assert plan["status"] == "MANUAL_ENGINEERING_CHANGE_REQUIRED"
+    action = next(
+        item for item in plan["actions"] if item["actionId"] == "repair_model_mass"
+    )
+    assert action["resolutionTypes"] == ["REPLACE_MODEL_SPEC"]
