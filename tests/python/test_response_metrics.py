@@ -72,6 +72,11 @@ def _write_semantic_manifest(tmp_path: Path, model_path: str) -> str:
                         "roleType": "TOWER_BASE",
                         "entity": {"type": "ELEMENT", "id": 41},
                     },
+                    {
+                        "roleId": "DAMPER_DEVICE",
+                        "roleType": "DAMPER_ATTACHMENT",
+                        "entity": {"type": "ELEMENT", "id": 42},
+                    },
                 ],
             },
             indent=2,
@@ -183,6 +188,26 @@ def _default_channels() -> list[dict[str, Any]]:
             location="END_I",
             values=[1.0, -3.0, 2.0, 4.0],
             unit="N",
+            reference_frame="ELEMENT_LOCAL",
+        ),
+        _channel(
+            "damper_force",
+            quantity="DAMPER_RESPONSE",
+            target_type="ELEMENT",
+            target_id=42,
+            component="FORCE",
+            values=[0.0, 120.0, -150.0, 60.0],
+            unit="N",
+            reference_frame="ELEMENT_LOCAL",
+        ),
+        _channel(
+            "damper_deformation",
+            quantity="DAMPER_RESPONSE",
+            target_type="ELEMENT",
+            target_id=42,
+            component="DEFORMATION",
+            values=[0.0, 0.05, -0.08, 0.02],
+            unit="m",
             reference_frame="ELEMENT_LOCAL",
         ),
     ]
@@ -318,6 +343,48 @@ def test_role_peak_supports_girder_displacement_and_element_tower_shear(
     assert shear["location"] == "END_I"
     assert shear["referenceFrame"] == "ELEMENT_LOCAL"
     assert shear["role"]["entity"] == {"type": "ELEMENT", "id": 41}
+
+
+def test_role_peak_supports_recorded_damper_force_and_deformation(
+    tmp_path: Path,
+) -> None:
+    model_path, manifest_path, run_id = _workspace(tmp_path)
+
+    report = compute_engineering_response_metrics(
+        tmp_path,
+        _request(
+            run_id,
+            model_path,
+            manifest_path,
+            [
+                {
+                    "metricId": "damper_force",
+                    "type": "ROLE_ABSOLUTE_PEAK",
+                    "roleId": "DAMPER_DEVICE",
+                    "quantity": "DAMPER_RESPONSE",
+                    "component": "FORCE",
+                },
+                {
+                    "metricId": "damper_stroke",
+                    "type": "ROLE_ABSOLUTE_PEAK",
+                    "roleId": "DAMPER_DEVICE",
+                    "quantity": "DAMPER_RESPONSE",
+                    "component": "DEFORMATION",
+                },
+            ],
+        ),
+    )
+
+    assert report["status"] == "COMPLETED"
+    by_id = {item["metricId"]: item for item in report["metrics"]}
+    assert by_id["damper_force"]["absolutePeak"] == pytest.approx(150.0)
+    assert by_id["damper_force"]["unit"] == "N"
+    assert by_id["damper_stroke"]["absolutePeak"] == pytest.approx(0.08)
+    assert by_id["damper_stroke"]["unit"] == "m"
+    assert by_id["damper_stroke"]["role"]["entity"] == {
+        "type": "ELEMENT",
+        "id": 42,
+    }
 
 
 def test_relative_displacement_peak_uses_exact_simultaneous_samples(

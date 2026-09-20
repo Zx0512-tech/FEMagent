@@ -30,6 +30,9 @@ _NODE_PEAK_QUANTITIES = frozenset(
 _NODE_COMPONENTS = frozenset({"X", "Y", "Z"})
 _GENERALIZED_FORCE_COMPONENTS = frozenset({"N", "VY", "VZ", "T", "MY", "MZ"})
 _GENERALIZED_FORCE_LOCATIONS = frozenset({"END_I", "END_J", "SECTION"})
+_DAMPER_COMPONENTS = frozenset(
+    {"FORCE", "DEFORMATION", "VELOCITY", "DISSIPATED_ENERGY"}
+)
 
 
 def _canonical_hash(value: Any) -> str:
@@ -103,7 +106,10 @@ def _validate_absolute_peak(
     quantity = metric.get("quantity")
     component = metric.get("component")
     location = metric.get("location")
-    if quantity not in _NODE_PEAK_QUANTITIES | {"GENERALIZED_FORCE"}:
+    if quantity not in _NODE_PEAK_QUANTITIES | {
+        "GENERALIZED_FORCE",
+        "DAMPER_RESPONSE",
+    }:
         raise _invalid(
             "ROLE_ABSOLUTE_PEAK quantity is unsupported",
             metricIndex=index,
@@ -126,6 +132,18 @@ def _validate_absolute_peak(
                 "GENERALIZED_FORCE metric requires END_I, END_J, or SECTION location",
                 metricIndex=index,
                 location=location,
+            )
+    elif quantity == "DAMPER_RESPONSE":
+        if location is not None:
+            raise _invalid(
+                "DAMPER_RESPONSE metrics do not accept location",
+                metricIndex=index,
+            )
+        if component not in _DAMPER_COMPONENTS:
+            raise _invalid(
+                "DAMPER_RESPONSE component is unsupported",
+                metricIndex=index,
+                component=component,
             )
     else:
         if location is not None:
@@ -381,11 +399,11 @@ def _validate_role_response_identity(
     quantity: str,
 ) -> None:
     entity_type = role["entity"]["type"]
-    if quantity == "GENERALIZED_FORCE":
+    if quantity in {"GENERALIZED_FORCE", "DAMPER_RESPONSE"}:
         if entity_type != "ELEMENT":
             raise FemCoreError(
                 "ENGINEERING_RESPONSE_METRIC_ROLE_ENTITY_MISMATCH",
-                "GENERALIZED_FORCE metrics require an explicit ELEMENT semantic role",
+                f"{quantity} metrics require an explicit ELEMENT semantic role",
                 details={
                     "roleId": role["roleId"],
                     "entity": role["entity"],

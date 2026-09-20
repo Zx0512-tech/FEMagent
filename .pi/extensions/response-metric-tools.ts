@@ -21,6 +21,7 @@ const roleAbsolutePeak = Type.Object(
       Type.Literal("REACTION_FORCE"),
       Type.Literal("REACTION_MOMENT"),
       Type.Literal("GENERALIZED_FORCE"),
+      Type.Literal("DAMPER_RESPONSE"),
     ]),
     component: Type.Union([
       Type.Literal("X"),
@@ -32,6 +33,10 @@ const roleAbsolutePeak = Type.Object(
       Type.Literal("T"),
       Type.Literal("MY"),
       Type.Literal("MZ"),
+      Type.Literal("FORCE"),
+      Type.Literal("DEFORMATION"),
+      Type.Literal("VELOCITY"),
+      Type.Literal("DISSIPATED_ENERGY"),
     ]),
     location: Type.Optional(
       Type.Union([
@@ -83,7 +88,7 @@ export default function responseMetricToolsExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use this only after a completed run exists and an explicit Engineering Semantic Role Manifest is bound to the same Model Bundle.",
       "Never invent roleId values. Inspect or resolve the semantic manifest first when role IDs are unknown.",
-      "ROLE_ABSOLUTE_PEAK supports NODE displacement/velocity/acceleration/reaction channels and recorded ELEMENT generalized force with explicit location.",
+      "ROLE_ABSOLUTE_PEAK supports NODE displacement/velocity/acceleration/reaction channels, recorded ELEMENT generalized force with explicit location, and recorded ELEMENT DAMPER_RESPONSE force/deformation/velocity/dissipated-energy channels.",
       "Use ROLE_RELATIVE_DISPLACEMENT_PEAK only for two distinct explicit NODE roles. The calculation is target minus reference on exactly aligned samples; the tool never interpolates or resamples.",
       "Use ROLE_GROUP_REACTION_RESULTANT_PEAK for one or more explicit NODE roles when the requested engineering quantity is the simultaneous X/Y reaction vector resultant. Its aggregation is SIGNED_COMPONENT_SUM_THEN_VECTOR_MAGNITUDE: sum signed X/Y components first, then take the vector magnitude.",
       "Unknown ANSYS units remain null. Never relabel or convert them.",

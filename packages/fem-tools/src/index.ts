@@ -1,3 +1,11 @@
+export { runFemEngineeringPerformanceEvaluation } from "./performanceConstraints.js";
+export {
+  type FemEngineeringConstraintEvaluation,
+  type FemEngineeringConstraintStatus,
+  type FemEngineeringPerformanceConstraint,
+  type FemEngineeringPerformanceEvaluation,
+  type FemEngineeringPerformanceRequest,
+} from "./performanceConstraintTypes.js";
 export { runFemEngineeringResponseMetrics } from "./responseMetrics.js";
 export {
   type FemEngineeringResponseGeneralizedForceLocation,
