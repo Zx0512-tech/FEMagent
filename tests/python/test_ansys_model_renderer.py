@@ -159,6 +159,33 @@ def test_ansys_renderer_verification_fails_closed_after_source_tamper(
     assert exc_info.value.code == "ANSYS_MODEL_RENDER_SOURCE_HASH_MISMATCH"
 
 
+def test_ansys_render_manifest_cannot_forge_retained_modelspec_identity(
+    tmp_path: Path,
+) -> None:
+    rendered = render_ansys_frame_2d(tmp_path, _model())
+    manifest_path = tmp_path / rendered["artifacts"]["manifestPath"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["input"]["normalizedModelSpec"]["materials"][0][
+        "youngsModulus"
+    ] *= 2
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FemCoreError) as exc_info:
+        verify_ansys_model_render(
+            tmp_path,
+            model_path=rendered["artifacts"]["modelPath"],
+            manifest_path=rendered["artifacts"]["manifestPath"],
+            expected_model_spec_fingerprint=rendered["input"][
+                "modelSpecFingerprint"
+            ],
+        )
+
+    assert exc_info.value.code == "ANSYS_MODEL_RENDER_MODEL_SPEC_MISMATCH"
+
+
 def test_ansys_renderer_blocks_nonready_model(tmp_path: Path) -> None:
     model = _model()
     model["constraints"] = []
