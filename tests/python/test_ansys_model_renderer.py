@@ -247,3 +247,47 @@ def test_pr29_render_binding_rejects_different_modelspec_identity(
         )
 
     assert exc_info.value.code == "ANSYS_MODEL_RENDER_MODEL_SPEC_MISMATCH"
+
+
+def test_ansys_adapter_preflight_carries_machine_proven_render_binding(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("FEM_ANSYS_EXECUTABLE", raising=False)
+    model = _model()
+    validation = validate_engineering_model_spec(model)
+    model_fingerprint = validation["modelSpecFingerprint"]
+    assert isinstance(model_fingerprint, str)
+    rendered = render_ansys_frame_2d(tmp_path, model)
+    load_path, load_sha = _load(tmp_path)
+
+    report = __import__(
+        "fem_core.solvers",
+        fromlist=["get_solver_adapter"],
+    ).get_solver_adapter("ansys").preflight(
+        tmp_path,
+        model_path=rendered["artifacts"]["modelPath"],
+        load_path=None,
+        solver_options={
+            "modelUnits": {"length": "m", "time": "s"},
+            "ansysV2": {
+                "analysisSpec": _analysis(
+                    model_fingerprint,
+                    load_path,
+                    load_sha,
+                ),
+                "confirmedBundleFingerprint": rendered["artifacts"][
+                    "bundleFingerprint"
+                ],
+                "renderManifestPath": rendered["artifacts"]["manifestPath"],
+            },
+        },
+    )
+
+    assert report["status"] == "BLOCKED"
+    checks = {item["code"]: item["status"] for item in report["checks"]}
+    assert checks["SOLVER_AVAILABLE"] == "FAILED"
+    assert checks["ANSYS_V2_ANALYSIS_ADMISSION"] == "PASSED"
+    binding = report["analysisAdmission"]["binding"]
+    assert binding["mode"] == "DETERMINISTIC_MODEL_SPEC_RENDER"
+    assert binding["semanticEquivalence"] == "MACHINE_PROVEN_RENDER_BINDING"
