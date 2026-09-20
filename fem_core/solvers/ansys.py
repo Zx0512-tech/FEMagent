@@ -85,6 +85,7 @@ def _ansys_v2_context(
         )
     analysis_spec = raw.get("analysisSpec")
     confirmed = raw.get("confirmedBundleFingerprint")
+    render_manifest_path = raw.get("renderManifestPath")
     if not isinstance(analysis_spec, dict):
         raise FemCoreError(
             "INVALID_ANSYS_V2_OPTIONS",
@@ -95,9 +96,18 @@ def _ansys_v2_context(
             "INVALID_ANSYS_V2_OPTIONS",
             "solverOptions.ansysV2.confirmedBundleFingerprint must be a SHA-256 fingerprint",
         )
+    if render_manifest_path is not None and (
+        not isinstance(render_manifest_path, str)
+        or not render_manifest_path.strip()
+    ):
+        raise FemCoreError(
+            "INVALID_ANSYS_V2_OPTIONS",
+            "solverOptions.ansysV2.renderManifestPath must be a non-empty string when provided",
+        )
     return {
         "analysisSpec": analysis_spec,
         "confirmedBundleFingerprint": confirmed,
+        "renderManifestPath": render_manifest_path,
     }
 
 
@@ -116,6 +126,7 @@ def _ansys_v2_plan(
         analysis_spec=context["analysisSpec"],
         model_units=_model_units(solver_options),
         confirmed_bundle_fingerprint=context["confirmedBundleFingerprint"],
+        render_manifest_path=context["renderManifestPath"],
     )
 
 
