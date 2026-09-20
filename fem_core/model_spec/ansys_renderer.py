@@ -176,14 +176,12 @@ def _render_fingerprint(
     *,
     model_spec_fingerprint: str,
     model_sha256: str,
-    bundle_fingerprint: str,
 ) -> str:
     payload = {
         "rendererName": RENDERER_NAME,
         "rendererVersion": RENDERER_VERSION,
         "modelSpecFingerprint": model_spec_fingerprint,
         "modelSha256": model_sha256,
-        "bundleFingerprint": bundle_fingerprint,
     }
     return sha256(
         json.dumps(
@@ -299,7 +297,6 @@ def render_ansys_frame_2d(
         render_fingerprint = _render_fingerprint(
             model_spec_fingerprint=model_spec_fingerprint,
             model_sha256=model_sha256,
-            bundle_fingerprint=bundle_fingerprint,
         )
         report = {
             "schema": RENDER_SCHEMA,
@@ -456,7 +453,6 @@ def verify_ansys_model_render(
     expected_render_fingerprint = _render_fingerprint(
         model_spec_fingerprint=str(model_spec_fingerprint),
         model_sha256=current_model_sha,
-        bundle_fingerprint=str(current_bundle_fingerprint),
     )
     if manifest.get("renderFingerprint") != expected_render_fingerprint:
         raise FemCoreError(
