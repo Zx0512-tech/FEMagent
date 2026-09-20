@@ -13,7 +13,8 @@ export type FemEngineeringResponsePeakQuantity =
   | "RELATIVE_ACCELERATION"
   | "REACTION_FORCE"
   | "REACTION_MOMENT"
-  | "GENERALIZED_FORCE";
+  | "GENERALIZED_FORCE"
+  | "DAMPER_RESPONSE";
 
 export type FemEngineeringResponsePeakComponent =
   | "X"
@@ -24,7 +25,11 @@ export type FemEngineeringResponsePeakComponent =
   | "VZ"
   | "T"
   | "MY"
-  | "MZ";
+  | "MZ"
+  | "FORCE"
+  | "DEFORMATION"
+  | "VELOCITY"
+  | "DISSIPATED_ENERGY";
 
 export type FemEngineeringResponseGeneralizedForceLocation =
   | "END_I"
